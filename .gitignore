@@ -10,3 +10,4 @@ input
 data/*
 workspace/*
 *.tar.gz
+tmp/*

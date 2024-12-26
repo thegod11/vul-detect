@@ -59,7 +59,7 @@ def joern_create(joern_path, in_path, out_path, cpg_files):
             # print('=== DEBUG4 ===')
             # print(joern_process.stdout.readline().decode())
             # print('=== DEBUG5 ===')
-            joern_process.stdin.write("delete\r".encode())
+            joern_process.stdin.write("delete\r".encode())  # 删除workspace中文件
             # print('=== DEBUG6 ===')
             # print(joern_process.stdout.readline().decode())
             print('=== DEBUG7 ===')

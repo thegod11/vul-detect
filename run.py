@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 import configs
 import utils.data as data
 import utils.process as process
+from utils.process.embeddings import GraphsEmbedding, NodesEmbedding
 import utils.functions.cpg_mod as cpg
 import torch
 import pandas as pd
@@ -123,8 +124,10 @@ def Embed_generator():
         data.write(tokens_dataset, PATHS.tokens, f"{file_name}_{FILES.tokens}")
 
         cpg_dataset["nodes"] = cpg_dataset.apply(lambda row: cpg.parse_to_nodes(row.cpg, context.nodes_dim), axis=1)
-        cpg_dataset["input"] = cpg_dataset.apply(lambda row: process.nodes_to_input(row.nodes, row.target, context.nodes_dim,
-                                                                            context.edge_type), axis=1)
+        graphs_embedding = GraphsEmbedding(context.edge_type)
+        nodes_embedding = NodesEmbedding(context.nodes_dim)
+        cpg_dataset["input"] = cpg_dataset.apply(lambda row: process.nodes_to_input(row.nodes, row.target, graphs_embedding,
+                                                                            nodes_embedding), axis=1)
         # Filter out rows where 'input' is None
         cpg_dataset = cpg_dataset[cpg_dataset["input"].notnull()]
         

@@ -7,7 +7,7 @@ from models.layers import encode_input
 from transformers import RobertaTokenizer, RobertaModel
 import gc
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 cache = {}
 
 class NodesEmbedding:
@@ -173,16 +173,16 @@ class GraphsEmbedding:
         return coo
 
 
-def nodes_to_input(nodes, target, nodes_dim, edge_type):
+def nodes_to_input(nodes, target, graphs_embedding, nodes_embedding):
     
-    graphs_embedding = GraphsEmbedding(edge_type)
+    # graphs_embedding = GraphsEmbedding(edge_type)
     edge_index =  graphs_embedding(nodes)
     
     if (len(edge_index[0]) + len(edge_index[1])) == 0:
         print(f"=== nodes_to_input - No edges found, sample skipping... ===")
         return None
     
-    nodes_embedding = NodesEmbedding(nodes_dim)
+    # nodes_embedding = NodesEmbedding(nodes_dim)
     x, types, codes = nodes_embedding(nodes)
 
     label = torch.tensor([target]).float()
