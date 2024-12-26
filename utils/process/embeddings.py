@@ -6,7 +6,8 @@ from utils.functions import log as logger
 from models.layers import encode_input
 from transformers import RobertaTokenizer, RobertaModel
 import gc
-
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1'
 cache = {}
 
 class NodesEmbedding:
@@ -73,7 +74,6 @@ class NodesEmbedding:
 
                     # Tokenize the code
                     input_ids, attention_mask = encode_input(tokenized_code, self.tokenizer_bert)
-                    # if code is '' -> ValueError: You should supply an encoding or a list of encodings to this method that includes input_ids, but you provided []
 
                     # Get embeddings using the BERT model
                     cls_feats = self.bert_model(input_ids.to(self.device), attention_mask.to(self.device))[0][:, 0]
@@ -105,6 +105,7 @@ class NodesEmbedding:
                 except Exception as e:
                     # Handle any exceptions and save the node only with its type
                     # print(f"embeddings - {type(e).__name__}: {e} \nNode ID: {n_id} \nNode code: {node_code}")
+                    # 字符串字面值node，在tokenize时候已经全部remove了
                     source_embedding = np.zeros(self.bert_model.config.hidden_size)
                     valid_embedding = True
             # Concatenate the node type with the source embeddings
@@ -154,7 +155,8 @@ class GraphsEmbedding:
                 raise Exception("Something wrong with the order")
 
             for e_id, edge in node.edges.items():
-#                 print(f"=== Nodes connectivity - edge.type: {edge.type} self.edge_type:{self.edge_type}")
+                # Cfg Ast
+                # print(f"=== Nodes connectivity - edge.type: {edge.type} self.edge_type:{self.edge_type}")
 #                 if edge.type != self.edge_type:
 #                     continue
                 # print(f"=== Nodes connectivity - edge: in {edge.node_in} - out {edge.node_out} ")
@@ -177,7 +179,7 @@ def nodes_to_input(nodes, target, nodes_dim, edge_type):
     edge_index =  graphs_embedding(nodes)
     
     if (len(edge_index[0]) + len(edge_index[1])) == 0:
-        # print(f"=== nodes_to_input - No edges found, sample skipping... ===")
+        print(f"=== nodes_to_input - No edges found, sample skipping... ===")
         return None
     
     nodes_embedding = NodesEmbedding(nodes_dim)
