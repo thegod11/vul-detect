@@ -18,12 +18,11 @@ Training
 
 ### Dataset preprocess
 Look at `select` function in `run.py`
-### Joern version v1.0.170
-[Joern releases](https://github.com/joernio/joern/releases?expanded=true&page=171&q=v1.0.170)
+### Joern version v1.1.1700
 
-[Joern version v1.0.170](https://github.com/joernio/joern/releases/tag/v1.0.170)
+[Joern version v1.1.1700](https://github.com/joernio/joern/releases/tag/v1.0.170)
 
-Download [joern-cli.zip](https://github.com/joernio/joern/releases/download/v1.0.170/joern-cli.zip) and extract it in /joern
+Download [joern-cli.zip](https://github.com/joernio/joern/releases/download/v1.1.1700/joern-cli.zip) and extract it in /joern
 
 #### Increse JVM heap size for joern 
 Open the script of joern (joern/joern-cli/joern) and change last line to 
@@ -38,31 +37,31 @@ jstat -gccapacity <pid> 1000 10
 ```
 1000 10 represent the refresh rate and the number of total output to print
 
-### Java JDK version 14
-14 or previous version as well
+### Java JDK version 19
+19 or previous version as well
 
-Get fresh link from: https://jdk.java.net/14/
+Get fresh link from: https://jdk.java.net/19/
 
 Download binary:
 
 ```
-wget https://download.java.net/java/GA/jdk14.0.2/205943a0976c4ed48cb16f1043c5c647/12/GPL/openjdk-14.0.2_linux-x64_bin.tar.gz
+wget -P ./ https://download.java.net/java/GA/jdk19.0.2/fdb695a9d9064ad6b064dc6df578380c/7/GPL/openjdk-19.0.2_linux-x64_bin.tar.gz
 ```
 
 Unpack it:
 ```
-tar xvf openjdk-14.0.2_linux-x64_bin.tar.gz
+tar xvf openjdk-19.0.2_linux-x64_bin.tar.gz
 ```
 Move to jvm folder:
 ```
-mv jdk-14.0.2 /usr/lib/jvm
+mv jdk-19.0.2 /usr/lib/jvm/jdk-19.0.2
 ```
 Update java and javac alternatives:
 ```
-update-alternatives --install "/usr/bin/javac" "javac" "/usr/lib/jvm/jdk-14.0.2/bin/javac" 3
-update-alternatives --install "/usr/bin/java" "java" "/usr/lib/jvm/jdk-14.0.2/bin/java" 3
-update-alternatives --set "javac" "/usr/lib/jvm/jdk-14.0.2/bin/javac"
-update-alternatives --set "java" "/usr/lib/jvm/jdk-14.0.2/bin/java"
+update-alternatives --install "/usr/bin/javac" "javac" "/usr/lib/jvm/jdk-19.0.2/bin/javac" 3
+update-alternatives --install "/usr/bin/java" "java" "/usr/lib/jvm/jdk-19.0.2/bin/java" 3
+update-alternatives --set "javac" "/usr/lib/jvm/jdk-19.0.2/bin/javac"
+update-alternatives --set "java" "/usr/lib/jvm/jdk-19.0.2/bin/java"
 ```
 Use to switch between versions:
 ```
