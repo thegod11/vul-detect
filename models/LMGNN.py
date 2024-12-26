@@ -31,13 +31,13 @@ class BertGGCN(nn.Module):
 
     def forward(self, data):
         
-        # print(f"=== BertGCNN forward - data: {data}")
-        # print(f"=== BertGCNN forward - data.x: {data.x}")
-        # print(f"=== BertGCNN forward - data.edge_index: {data.edge_index}")
-        # print(f"=== BertGCNN forward - data.y: {data.y}")
-        # print(f"=== BertGCNN forward - data.func: {data.func}")
-        # print(f"=== BertGCNN forward - data.batch: {data.batch}")
-        # print(f"=== BertGCNN forward - data.ptr: {data.ptr}")
+        print(f"=== BertGCNN forward - data: {data}")
+        print(f"=== BertGCNN forward - data.x: {data.x}")
+        print(f"=== BertGCNN forward - data.edge_index: {data.edge_index}")
+        print(f"=== BertGCNN forward - data.y: {data.y}")
+        print(f"=== BertGCNN forward - data.func: {data.func}")
+        print(f"=== BertGCNN forward - data.batch: {data.batch}")
+        print(f"=== BertGCNN forward - data.ptr: {data.ptr}")
         
 
         # if self.training:

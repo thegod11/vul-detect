@@ -21,15 +21,16 @@ def funcs_to_graphs(funcs_path):
 
 
 def graph_indexing(graph):
-    idx = int(graph["file"].split(".c")[0].split("/")[-1])
-    del graph["file"]
-    return idx, {"functions": [graph]}
+    if graph['file'] != "<includes>" and graph['file'] != "<empty>" :
+        idx = int(graph["file"].split(".c")[0].split("/")[-1])
+        del graph["file"]
+        return idx, {"functions": [graph]}
 
 
 def joern_parse(joern_path, input_path, output_path, file_name):
     out_file = file_name + ".bin"
     print('=== BEGIN joern_parse of ', out_file, '===')
-    joern_parse_call = subprocess.run(["./" + joern_path + "joern-parse", input_path, "--out", output_path + out_file],
+    joern_parse_call = subprocess.run(["./" + joern_path + "joern-parse", input_path, "--output", output_path + out_file],
                                       stdout=subprocess.PIPE, text=True, check=True)
     print(str(joern_parse_call))
     return out_file

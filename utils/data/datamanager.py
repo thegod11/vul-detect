@@ -65,7 +65,7 @@ def tokenize(data_frame: pd.DataFrame):
 
 def to_files(data_frame: pd.DataFrame, out_path):
     # path = f"{self.out_path}/{self.dataset_name}/"
-    os.makedirs(out_path)
+    os.makedirs(out_path,exist_ok=True)
 
     for idx, row in data_frame.iterrows():
         file_name = f"{idx}.c"
@@ -132,7 +132,7 @@ def loads(data_sets_dir, ratio=1):
 
     for ds_file in data_sets_files:
         # dataset = dataset.append(load(data_sets_dir, ds_file))
-        dataset = pd.concat([dataset, load(data_sets_dir, ds_file)])
+        dataset = pd.concat([dataset, load(data_sets_dir, ds_file)])   # 将joern生成的slices全部合并起来
 
     return dataset
 
@@ -143,7 +143,8 @@ def clean(data_frame: pd.DataFrame):
 
 def drop(data_frame: pd.DataFrame, keys):
     for key in keys:
-        del data_frame[key]
+        if key in data_frame.columns:
+            del data_frame[key]
 
 
 def slice_frame(data_frame: pd.DataFrame, size: int):

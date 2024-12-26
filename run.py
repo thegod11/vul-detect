@@ -48,7 +48,7 @@ def Filter_raw_dataset():
     print(f"=== Filtered dataset size: {len(filtered)} ===")
     filtered = data.clean(filtered) # remove duplicates 
     print(f"=== Filtered and cleaned dataset size: {len(filtered)} ===")
-    data.drop(filtered, ["hash", "project", "cwe"]) # Hash column name "hash" or "commit_id" depends on the dataset
+    data.drop(filtered, ["hash", "commit_id", "project", "cwe"]) # Hash column name "hash" or "commit_id" depends on the dataset
 
     return filtered
 
@@ -66,6 +66,9 @@ def CPG_generator(filtered_dataset):
 
     # Process each slice individually
     for s, slice in slices:
+        # Step 0: skip already cpg
+        if os.path.exists(PATHS.cpg + f"{s}_{FILES.cpg}.pkl"):
+            continue
         # Step 1: Generate CPG binary file for the current slice
         data.to_files(slice, PATHS.joern)
         cpg_file = process.joern_parse(context.joern_cli_dir, PATHS.joern, PATHS.cpg, f"{s}_{FILES.cpg}")
@@ -74,7 +77,7 @@ def CPG_generator(filtered_dataset):
         # Step 2: Create CPG with graphs JSON file
         json_file = process.joern_create(context.joern_cli_dir, PATHS.cpg, PATHS.cpg, [cpg_file])[0]
         print(f"CPG binary file for dataset {s} converted to JSON.")
-        exit()
+
         # Step 3: Process JSON to extract graph data and save as a `.pkl` file
         graphs = process.json_process(PATHS.cpg, json_file)
         if graphs is None:
@@ -110,7 +113,10 @@ def Embed_generator():
 
     for pkl_file in dataset_files:
         file_name = pkl_file.split(".")[0]
-        cpg_dataset = data.load(PATHS.cpg, pkl_file)
+        if os.path.exists(PATHS.input + f"{file_name}_{FILES.input}"):
+            print(f"=== Skip input dataset {file_name} . ===")
+            continue
+        cpg_dataset = data.load(PATHS.cpg, pkl_file).iloc[1::2] 
         print(f"=== Processing input dataset {file_name} with size {len(cpg_dataset)}. ===")
 
         tokens_dataset = data.tokenize(cpg_dataset)                             
@@ -134,7 +140,7 @@ def Dataloaders_generator(args, save=False):
     context.update_from_args(args)
     if save:
         path = f"input/bs_{context.batch_size}/"
-        os.makedirs(path)
+        os.makedirs(path, exist_ok=True)
 
     input_dataset = loads(PATHS.input)
 

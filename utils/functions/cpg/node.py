@@ -2,8 +2,8 @@ from .properties import Properties
 from .edge import Edge
 from utils.functions import log as logger
 
-node_labels = ["Block", "Call", "Comment", "ControlStructure", "File", "Identifier", "FieldIdentifier", "JumpTarget", "Literal",
-               "Local", "Member", "MetaData", "Method", "MethodInst", "MethodParameterIn", "MethodParameterOut",
+node_labels = ["Block", "Call", "Comment", "ControlStructure", "File", "Identifier", "FieldIdentifier", "arrayInitializer" ,"JumpTarget", "Literal",
+               "Local", "Member", "MetaData", "Method", "MethodInst", "MethodParameterIn", "MethodParameterOut",  "conditional",
                "MethodReturn", "Namespace", "NamespaceBlock", "Return", "Type", "TypeDecl", "Unknown"]
 
 operators = ['addition', 'addressOf', 'and', 'arithmeticShiftRight', 'assignment',
