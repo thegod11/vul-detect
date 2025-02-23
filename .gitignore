@@ -23,4 +23,7 @@ utils/data/torch_geometrics_process/cfexplainer/storage/cache/*
 utils/data/torch_geometrics_process/cfexplainer/storage/external/joern-cli*/*
 utils/data/torch_geometrics_process/cfexplainer/storage/external/workspace/*
 utils/data/torch_geometrics_process/cfexplainer/storage/processed/*
+baseline/GTC/data/*
+baseline/GTC/code/__MAXCOSX/*
 *.csv
+*.pt
