@@ -17,7 +17,11 @@ Training
    - Use leaky_relu instead of relu in the conv layers (seems to have better performance)
 
 ### Dataset preprocess
-Look at `select` function in `run.py`
+- align to devign dataset columns: project、commit_id、target、func
+- modify config.json to load right dataset.json
+- Look at `select` function in `run.py`
+- cfexplainer 's VulGraphDataset nodes/egdes' features extraction, build torch_geometric Data
+- vulDGLDataset build Heterogeneous graph DGL dataset, and build GraphDataLoader to load train data for GTC
 ### Joern version v2.0.291
 
 [Joern version v2.0.291](https://github.com/joernio/joern/releases/tag/v2.0.291)
