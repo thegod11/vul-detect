@@ -15,3 +15,12 @@ tmp/*
 *.npz
 *.zip
 *.log
+*MACOSX/*
+*.pyc
+*.pkl
+*.parquet
+utils/data/torch_geometrics_process/cfexplainer/storage/cache/*
+utils/data/torch_geometrics_process/cfexplainer/storage/external/joern-cli*/*
+utils/data/torch_geometrics_process/cfexplainer/storage/external/workspace/*
+utils/data/torch_geometrics_process/cfexplainer/storage/processed/*
+*.csv
