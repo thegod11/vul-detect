@@ -9,11 +9,21 @@ from utils.process.embeddings import GraphsEmbedding, NodesEmbedding
 import utils.functions.cpg_mod as cpg
 import torch
 import pandas as pd
+import numpy as np
 from utils.data.datamanager import loads, train_val_test_split
+from utils.data.torch_geometrics_process.cfexplainer import code_graph_gen
+from utils.data.torch_geometrics_process.cfexplainer.helpers.utils import *
 from models.LMGNN import BertGGCN
 from baseline.training_val_test import train, validate, test, save_checkpoint, load_checkpoint
 import os
-
+from sklearn.utils import shuffle
+from transformers import (BertConfig, BertForMaskedLM, BertTokenizer,
+                          GPT2Config, GPT2LMHeadModel, GPT2Tokenizer,
+                          OpenAIGPTConfig, OpenAIGPTLMHeadModel, OpenAIGPTTokenizer,
+                          RobertaConfig, RobertaForSequenceClassification, RobertaTokenizer,
+                          DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer,
+                          T5Config, T5ForConditionalGeneration, T5Tokenizer)
+from utils.data.torch_geometrics_process.cfexplainer.graph_dataset import VulGraphDataset
 '''
 Load the configuration parameters from the configs.json file
 '''
@@ -50,8 +60,19 @@ def Filter_raw_dataset():
     filtered = data.clean(filtered) # remove duplicates 
     print(f"=== Filtered and cleaned dataset size: {len(filtered)} ===")
     data.drop(filtered, ["hash", "commit_id", "project", "cwe"]) # Hash column name "hash" or "commit_id" depends on the dataset
+    filtered['idx'] = filtered.index
+    print(f"=== Filtered and cleaned dataset columns: {filtered.columns} ===")
 
     return filtered
+
+def Geometrics_generator(filtered_dataset):
+    NUM_JOBS = 5
+    splits = np.array_split(filtered_dataset, NUM_JOBS)
+    # Generate Graphs
+    for JOB_ARRAY_NUMBER in range(NUM_JOBS):
+        processed_list = dfmp(splits[JOB_ARRAY_NUMBER], code_graph_gen.preprocess_devign, ordr=False, workers=15)
+        print(f'已经处理 {len(processed_list)} 个文件...')
+    print("Geometrics Data generation completed.")
 
 def CPG_generator(filtered_dataset):
     """
@@ -268,6 +289,7 @@ def Testing_Vul_LMGNN(args, test_loader, model_path, model_name):
 if __name__ == '__main__':
     parser: ArgumentParser = argparse.ArgumentParser()
     parser.add_argument('-cpg', '--cpg', action="store_true", help='Specify to perform CPG generation task.')
+    parser.add_argument('-gtc', '--gtc', action="store_true", help='Specify to perform gtc data generation task.')
     parser.add_argument('-embed', '--embed', action="store_true", help='Specify to perform Embedding generation task.')
     parser.add_argument('-dataloaders', '--dataloaders', default=None, help='Generate DataLoaders from input pkl files. Specify "save" or "not_save".')
     parser.add_argument('-train', '--train', action="store_true", help='Start the training process. Specify hyperparameters.')
@@ -302,9 +324,34 @@ if __name__ == '__main__':
     '''
     ###
     if args.cpg:
-        filtered_dataset = Filter_raw_dataset()
+        filtered_dataset = Filter_raw_dataset()  # ['target', 'func', 'idx']
+        # os.system("/usr/bin/shutdown")
     ###
+    if args.gtc:
+        Geometrics_generator(filtered_dataset)
 
+        MODEL_CLASSES = {
+        'gpt2': (GPT2Config, GPT2LMHeadModel, GPT2Tokenizer),
+        'openai-gpt': (OpenAIGPTConfig, OpenAIGPTLMHeadModel, OpenAIGPTTokenizer),
+        'bert': (BertConfig, BertForMaskedLM, BertTokenizer),
+        'roberta': (RobertaConfig, RobertaForSequenceClassification, RobertaTokenizer),
+        'distilbert': (DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer),
+        't5': (T5Config, T5ForConditionalGeneration, T5Tokenizer)
+        }
+    
+        model_type = "roberta"
+        model_name_or_path = "microsoft/graphcodebert-base"
+        tokenizer_name = "microsoft/graphcodebert-base"
+        
+        partition = None
+        
+        config_class, model_class, tokenizer_class = MODEL_CLASSES[model_type]
+        config = config_class.from_pretrained(model_name_or_path)
+        tokenizer = tokenizer_class.from_pretrained(tokenizer_name, use_fast=True)  # tokenizer只能在cpu运行
+
+        language_model = model_class.from_pretrained(model_name_or_path, from_tf=bool('.ckpt' in model_name_or_path), config=config)
+        dataset = VulGraphDataset(filtered_dataset=filtered_dataset ,root=str("utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes"), encoder=language_model, tokenizer=tokenizer, partition=partition)
+        
     '''
     CPG_generator(), generate CPG datasets using Joern
     Input: filtered dataset

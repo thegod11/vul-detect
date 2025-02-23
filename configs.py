@@ -3,7 +3,7 @@ import torch
 
 
 class Config(object):
-    def __init__(self, config, file_path="configs.json"):
+    def __init__(self, config, file_path="configs_CVEfixes.json"):
         with open(file_path) as config_file:
             self._config = json.load(config_file)
             self._config = self._config.get(config)

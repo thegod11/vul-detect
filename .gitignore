@@ -11,3 +11,7 @@ data/*
 workspace/*
 *.tar.gz
 tmp/*
+*.npy
+*.npz
+*.zip
+*.log

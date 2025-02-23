@@ -3,7 +3,7 @@ from .edge import Edge
 from utils.functions import log as logger
 
 node_labels = ["Block", "Call", "Comment", "ControlStructure", "File", "Identifier", "FieldIdentifier", "arrayInitializer" ,"JumpTarget", "Literal",
-               "Local", "Member", "MetaData", "Method", "MethodInst", "MethodParameterIn", "MethodParameterOut",  "conditional",
+               "Local", "Member", "MetaData", "Method", "MethodInst", "MethodParameterIn", "MethodParameterOut",  "conditional", "expressionList",
                "MethodReturn", "Namespace", "NamespaceBlock", "Return", "Type", "TypeDecl", "Unknown"]
 
 operators = ['addition', 'addressOf', 'and', 'arithmeticShiftRight', 'assignment',
@@ -13,7 +13,7 @@ operators = ['addition', 'addressOf', 'and', 'arithmeticShiftRight', 'assignment
              'delete', 'division', 'equals', 'fieldAccess', 'greaterEqualsThan', 'greaterThan',
              'indirectFieldAccess', 'indirectIndexAccess', 'indirection', 'lessEqualsThan',
              'lessThan', 'logicalAnd', 'logicalNot', 'logicalOr', 'minus', 'modulo', 'multiplication', "new",
-             'not', 'notEquals', 'or', 'postDecrement', 'plus', 'postIncrement', 'preDecrement',
+             'not', 'notEquals', 'or', 'xor', 'postDecrement', 'plus', 'postIncrement', 'preDecrement', 'op_ellipses',
              'preIncrement', 'shiftLeft', 'sizeOf', 'subtraction']
 
 node_labels += operators

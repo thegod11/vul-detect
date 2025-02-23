@@ -17,7 +17,9 @@ Training
    - Use leaky_relu instead of relu in the conv layers (seems to have better performance)
 
 ### Dataset preprocess
-Look at `select` function in `run.py`
+- 修改数据与devign对齐
+- Look at `select` function in `run.py`
+
 ### Joern version v1.1.1700
 
 [Joern version v1.1.1700](https://github.com/joernio/joern/releases/tag/v1.0.170)
