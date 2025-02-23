@@ -17,14 +17,12 @@ Training
    - Use leaky_relu instead of relu in the conv layers (seems to have better performance)
 
 ### Dataset preprocess
-- 修改数据与devign对齐
-- Look at `select` function in `run.py`
+Look at `select` function in `run.py`
+### Joern version v2.0.291
 
-### Joern version v1.1.1700
+[Joern version v2.0.291](https://github.com/joernio/joern/releases/tag/v2.0.291)
 
-[Joern version v1.1.1700](https://github.com/joernio/joern/releases/tag/v1.0.170)
-
-Download [joern-cli.zip](https://github.com/joernio/joern/releases/download/v1.1.1700/joern-cli.zip) and extract it in /joern
+Download [joern-cli.zip](https://github.com/joernio/joern/releases/download/v2.0.291/joern-cli.zip) and extract it in /joern
 
 #### Increse JVM heap size for joern 
 Open the script of joern (joern/joern-cli/joern) and change last line to 

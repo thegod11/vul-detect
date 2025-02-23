@@ -2,6 +2,7 @@
 
    This script returns a Json representation of the graph resulting in combining the
    AST, CGF, and PDG for each method contained in the currently loaded CPG.
+   （为适应 joern2.0 中将 Traversal 删除的改动，将 Traversal 更换为 Iterator）
 
    Input: A valid CPG
    Output: Json
@@ -81,15 +82,24 @@ implicit val encodeFuncResult: Encoder[GraphForFuncsResult] = deriveEncoder
       val astChildren = method.astMinusRoot.l
       val cfgChildren = method.out(EdgeTypes.CONTAINS).asScala.collect { case node: nodes.CfgNode => node }.toList
 
-      val local = new Traversal(
-        methodVertex
-          .out(EdgeTypes.CONTAINS).asScala)
-          .hasLabel(NodeTypes.BLOCK)
-          .out(EdgeTypes.AST)
-          .hasLabel(NodeTypes.LOCAL)
-          .cast[Local]
+      val local: Iterator[Local] = methodVertex
+                                          .out(EdgeTypes.CONTAINS).asScala
+                                          .hasLabel(NodeTypes.BLOCK)
+                                          .out(EdgeTypes.AST)
+                                          .hasLabel(NodeTypes.LOCAL)
+                                          .cast[Local]
+                                          .iterator
+
       val sink = local.evalType(".*").referencingIdentifiers.dedup
-      val source = new Traversal(methodVertex.out(EdgeTypes.CONTAINS).asScala).hasLabel(NodeTypes.CALL).cast[nodes.Call].nameNot("<operator>.*").dedup
+      // val source = new Traversal(methodVertex.out(EdgeTypes.CONTAINS).asScala).hasLabel(NodeTypes.CALL).cast[nodes.Call].nameNot("<operator>.*").dedup
+      val source: Iterator[nodes.Call] = methodVertex
+                                                  .out(EdgeTypes.CONTAINS).asScala
+                                                  .hasLabel(NodeTypes.CALL)
+                                                  .cast[nodes.Call]
+                                                  .nameNot("<operator>.*")
+                                                  .dedup
+                                                  .iterator
+
 
       val pdgChildren = sink
         .reachableByFlows(source)
