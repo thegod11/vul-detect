@@ -58,10 +58,10 @@ def Filter_raw_dataset():
     filtered = data.apply_filter(raw, filter_select) # see "select" function above
     print(f"=== Filtered dataset size: {len(filtered)} ===")
     filtered = data.clean(filtered) # remove duplicates 
-    print(f"=== Filtered and cleaned dataset size: {len(filtered)} ===")
+    print(f"=== Filtered and cleaned dataset size: {len(filtered)} ===") 
     data.drop(filtered, ["hash", "commit_id", "project", "cwe"]) # Hash column name "hash" or "commit_id" depends on the dataset
-    filtered['idx'] = filtered.index
-    print(f"=== Filtered and cleaned dataset columns: {filtered.columns} ===")
+    filtered['idx'] = filtered.index 
+    print(f"=== Filtered and cleaned dataset columns: {filtered.columns} ===") 
 
     return filtered
 
@@ -70,7 +70,7 @@ def Geometrics_generator(filtered_dataset):
     splits = np.array_split(filtered_dataset, NUM_JOBS)
     # Generate Graphs
     for JOB_ARRAY_NUMBER in range(NUM_JOBS):
-        processed_list = dfmp(splits[JOB_ARRAY_NUMBER], code_graph_gen.preprocess_devign, ordr=False, workers=15)
+        processed_list = dfmp(splits[JOB_ARRAY_NUMBER], code_graph_gen.preprocess_devign, ordr=True, workers=15)
         print(f'已经处理 {len(processed_list)} 个文件...')
     print("Geometrics Data generation completed.")
 

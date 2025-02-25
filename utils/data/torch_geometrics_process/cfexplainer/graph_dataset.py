@@ -21,10 +21,10 @@ from .helpers import utils
 from .helpers import joern
 from tqdm import tqdm
 # from data_pre import bigvul
-
+dataset_name = "CVEfixes"
 
 class VulGraphDataset(Dataset):
-    def __init__(self, root: Optional[str] = "storage/processed/CVEfixes", 
+    def __init__(self, root: Optional[str] = f"storage/processed/{dataset_name}", 
                  transform: Optional[Callable] = None, pre_transform: Optional[Callable] = None, pre_filter: Optional[Callable] = None, log: bool = True, 
                  encoder = None, tokenizer = None, partition = None,
                  vulonly = False, sample = -1, splits = "default",
@@ -59,7 +59,8 @@ class VulGraphDataset(Dataset):
     
     def data_build(self, row, data_list, edge_type):
         _id = self.idx2id[row.idx]
-        n, e = self.feature_extraction(VulGraphDataset.itempath(_id), edge_type)
+        lan = "c" if "programming_language" not in row.keys() or row.programming_language == "C" else "java" if row.programming_language == "Java" else "cpp"
+        n, e = self.feature_extraction(VulGraphDataset.itempath(_id, lan), edge_type)
         x = np.array(list(n.subseq_feat.values))
         edge_index = np.array(e)
         code_graph = Data(x=torch.FloatTensor(x), edge_index=torch.LongTensor(edge_index))
@@ -76,7 +77,7 @@ class VulGraphDataset(Dataset):
         # Get finished samples
         self.finished = [
             int(Path(i).name.split(".")[0])
-            for i in glob(str(utils.processed_dir() / "Devign/code/*nodes*"))
+            for i in glob(str(utils.processed_dir() / f"{dataset_name}/code/*nodes*"))
         ]
         # self.df = bigvul(splits=self.splits)
         # self.df = self.df[self.df.label == self.partition]
@@ -98,7 +99,7 @@ class VulGraphDataset(Dataset):
 
         # Filter out samples with no lineNumber from Joern output
         self.df["valid"] = utils.dfmp(
-            self.df, VulGraphDataset.check_validity, "id", desc="Validate Samples: "
+            self.df, VulGraphDataset.check_validity, ["id", "programming_language"], desc="Validate Samples: "
         )
         self.df = self.df[self.df.valid]
 
@@ -112,7 +113,7 @@ class VulGraphDataset(Dataset):
         self.df["torch_geometrics_data"] = self.df.progress_apply(lambda row: [self.data_build(row, data_list, e) for e in ["ast", "cfgcdg", "pdg"]], axis=1)
 
         print('Saving...')
-        self.df.to_pickle(os.path.join(self.processed_dir, "devign_dataframe.pkl"))
+        self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset}_dataframe.pkl"))
         torch.save(data_list, self.processed_paths[0])
         
     def len(self) -> int:
@@ -121,11 +122,13 @@ class VulGraphDataset(Dataset):
     def get(self, idx: int) -> Data:
         return self.data_list[idx]
     
-    def itempath(_id):
+    def itempath(_id, lan = "c"):
         """Get itempath path from item id."""
-        return utils.processed_dir() / f"Devign/code/{_id}.c"
+        # _id = self.idx2id[row.idx]
+        # lan = "c" if row.programming_language == "C" else "java" if row.programming_language == "Java" else "cpp"
+        return utils.processed_dir() / f"{dataset_name}/code/{_id}.{lan}"
     
-    def check_validity(_id):
+    def check_validity(item):
         """Check whether sample with id=_id has node/edges.
 
         Example:
@@ -134,8 +137,12 @@ class VulGraphDataset(Dataset):
             nodes = json.load(f)
         """
         valid = 0
+        _id = item["id"]
+        programming_language = item["programming_language"]
+
+        lan = "c" if programming_language == "C" else "java" if programming_language == "Java" else "cpp"
         try:
-            with open(str(VulGraphDataset.itempath(_id)) + ".nodes.json", "r") as f:
+            with open(str(VulGraphDataset.itempath(_id, lan)) + ".nodes.json", "r") as f:
                 nodes = json.load(f)
                 lineNums = set()
                 for n in nodes:
@@ -146,14 +153,14 @@ class VulGraphDataset(Dataset):
                             break
                 if valid == 0:
                     return False
-            with open(str(VulGraphDataset.itempath(_id)) + ".edges.json", "r") as f:
+            with open(str(VulGraphDataset.itempath(_id, lan)) + ".edges.json", "r") as f:
                 edges = json.load(f)
                 edge_set = set([i[2] for i in edges])
                 if "REACHING_DEF" not in edge_set and "CDG" not in edge_set:
                     return False
                 return True
         except Exception as E:
-            print(E, str(VulGraphDataset.itempath(_id)))
+            print(E, str(VulGraphDataset.itempath(_id, lan)))
             return False
         
     def get_vuln_indices(self, _id):

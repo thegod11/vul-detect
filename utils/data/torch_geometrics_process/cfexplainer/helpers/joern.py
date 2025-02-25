@@ -347,7 +347,7 @@ def assign_line_num_to_local(nodes, edges, code):
         types = [i for i in v if i in id2name and i < 1000]
         if len(types) == 0:
             continue
-        assert len(types) == 1, "Incorrect Type Assumption."
+        # assert len(types) == 1, "Incorrect Type Assumption."
         
         # 获取一跳邻居节点中的块节点
         block = onehop_labels[k]

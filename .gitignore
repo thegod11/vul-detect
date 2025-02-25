@@ -8,6 +8,7 @@ zip_bin_with_json.py
 run_notebook.ipynb
 input
 data/model/*
+data/raw/CVEfixes/*
 workspace/*
 *.tar.gz
 tmp/*
@@ -23,7 +24,9 @@ utils/data/torch_geometrics_process/cfexplainer/storage/cache/*
 utils/data/torch_geometrics_process/cfexplainer/storage/external/joern-cli*/*
 utils/data/torch_geometrics_process/cfexplainer/storage/external/workspace/*
 utils/data/torch_geometrics_process/cfexplainer/storage/processed/*
+baseline/GTC/code/__MACOSX/*
 baseline/GTC/data/*
-baseline/GTC/code/__MAXCOSX/*
 *.csv
 *.pt
+*.bin*
+joern/workspace/*
