@@ -22,6 +22,7 @@ Training
 - Look at `select` function in `run.py`
 - cfexplainer 's VulGraphDataset nodes/egdes' features extraction, build torch_geometric Data
 - vulDGLDataset build Heterogeneous graph DGL dataset, and build GraphDataLoader to load train data for GTC
+   - notice check_validity、itempath function, modify for dataset
 ### Joern version v2.0.291
 
 [Joern version v2.0.291](https://github.com/joernio/joern/releases/tag/v2.0.291)
