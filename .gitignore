@@ -8,7 +8,11 @@ zip_bin_with_json.py
 run_notebook.ipynb
 input
 data/model/*
-data/raw/CVEfixes/*
+data/raw/*
+data/academic/*
+data/acm/*
+data/dblp/*
+data/freebase/*
 workspace/*
 *.tar.gz
 tmp/*
@@ -30,3 +34,4 @@ baseline/GTC/data/*
 *.pt
 *.bin*
 joern/workspace/*
+data/.DS_Store
