@@ -122,6 +122,7 @@ class vulDGLDataset(DGLDataset):
     
     
 if __name__ == "__main__":
-    dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/vul_graph_dataset/None_processed/devign_dataframe.pkl"
-    save_dir = os.path.join(os.path.dirname(dataframe_path), "data.pt")
-    dataset = vulDGLDataset(name="devign", raw_dataframe_path=dataframe_path, save_dir=save_dir)
+    # dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/vul_graph_dataset/None_processed/devign_dataframe.pkl"
+    dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe.pkl"
+    save_dir = os.path.join(os.path.dirname(dataframe_path), "dgl_hetgraph_data.pt")
+    dataset = vulDGLDataset(name="CVEfixes", raw_dataframe_path=dataframe_path, save_dir=save_dir)

@@ -237,6 +237,53 @@ def devign_params():
     args, _ = parser.parse_known_args()
     return args
 
+def CVEfixes_params():
+    parser = argparse.ArgumentParser()
+    # parser.add_argument('--load_from_pretrained', action="store_true")
+    parser.add_argument('--turn', type=int, default=0)
+    parser.add_argument('--dataset', type=str, default="CVEfixes")
+    parser.add_argument('--ratio', type=int, default=[20, 40, 60])
+    parser.add_argument('--device', type=int, default=0)
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--hidden_dim', type=int, default=256)
+    parser.add_argument('--nb_epochs', type=int, default=1000)
+    parser.add_argument('--gnn_branch_layer_num', type=int, default=4)
+    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--dataframe_path', type=str, default="/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe.pkl")
+    parser.add_argument('--save_dir', type=str, default="/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/dgl_hetgraph_data.pt")
+    # The parameters of evaluation
+    parser.add_argument('--eva_lr', type=float, default=0.01)
+    parser.add_argument('--eva_wd', type=float, default=0)
+
+    # The parameters of learning process
+    parser.add_argument('--patience', type=int, default=30)
+    parser.add_argument('--lr', type=float, default=0.009)
+    parser.add_argument('--l2_coef', type=float, default=0)
+
+    # model-specific parameters
+    parser.add_argument('--tau', type=float, default=0.2)
+    parser.add_argument('--lam', type=float, default=0.1)
+    parser.add_argument('--feat_drop', type=float, default=0.7)
+
+    # transformer related parameters
+    parser.add_argument('--t_hops', type=int, default=9,
+                        help='Hop of neighbors to be calculated')
+    parser.add_argument('--t_pe_dim', type=int, default=20,
+                        help='position embedding size')
+    parser.add_argument('--t_n_layers', type=int, default=2,
+                        help='Number of Transformer layers')
+    parser.add_argument('--t_n_heads', type=int, default=4,
+                        # parser.add_argument('--t_n_heads', type=int, default=6,
+                        help='Number of Transformer heads')
+    parser.add_argument('--t_dropout', type=float, default=0.1,
+                        help='Dropout')
+    parser.add_argument('--t_attention_dropout', type=float, default=0.1,
+                        help='Dropout in the attention layer')
+    # --------------------------------------------------------------------------------
+
+    args, _ = parser.parse_known_args()
+    return args
+
 def set_params():
     if dataset == "acm":
         args = acm_params()
@@ -248,5 +295,7 @@ def set_params():
         args = academic_params()
     elif dataset == "devign":
         args = devign_params()
+    elif dataset == "CVEfixes":
+        args = CVEfixes_params()
 
     return args

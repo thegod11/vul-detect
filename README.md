@@ -26,18 +26,31 @@ pipreqs .  --ignore ./tmp
 - cfexplainer 's VulGraphDataset nodes/egdes' features extraction, build torch_geometric Data
 - vulDGLDataset build Heterogeneous graph DGL dataset, and build GraphDataLoader to load train data for GTC
    - notice check_validity、itempath function, modify for dataset
-- process command
+- process data script
 ```bash
 nohup python run.py -cpg -embed -gtc -dataloaders save -train -path ./data/model/my_best_vul_LMGGNN.pth > /root/autodl-tmp/output-dataprocess.log 2>&1 &
 tail -f /root/autodl-tmp/output-dataprocess.log
 ps -ef | grep run.py
 kill 进程号
+
+nohup python vulDGLDataset.py > /root/autodl-tmp/output-dataprocess.log 2>&1 &
+tail -f /root/autodl-tmp/output-dataprocess.log
+ps -ef | grep vulDGLDataset.py
+kill 进程号
 ```
-### Joern version v2.0.291
 
-[Joern version v2.0.291](https://github.com/joernio/joern/releases/tag/v2.0.291)
+### Train Model
+- train GTC script
+```bash
+nohup python ./baseline/GTC/code/main.py CVEfixes > /root/autodl-tmp/output-gtc-train.log 2>&1 &
+tail -f /root/autodl-tmp/output-gtc-train.log
+```
 
-Download [joern-cli.zip](https://github.com/joernio/joern/releases/download/v2.0.291/joern-cli.zip) and extract it in /joern
+### Joern version v2.0.347
+
+[Joern version v2.0.347](https://github.com/joernio/joern/releases/tag/v2.0.347)
+
+Download [joern-cli.zip](https://github.com/joernio/joern/releases/download/v2.0.347/joern-cli.zip) and extract it in /joern
 
 #### Increse JVM heap size for joern 
 Open the script of joern (joern/joern-cli/joern) and change last line to 

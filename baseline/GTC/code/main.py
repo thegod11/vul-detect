@@ -233,7 +233,8 @@ def train_flow_devign(model, train_loader, optimizer, config, category, own_str,
             best_t = epoch
             cnt_wait = 0
             # save better checkpoint~
-            torch.save(model.state_dict(), '../data/GTC_' + own_str + '.pkl')
+            os.makedirs('../data/checkpoint', exist_ok=True)
+            torch.save(model.state_dict(), '../data/checkpoint/GTC_' + own_str + '.pkl')
         else:
             cnt_wait += 1
             print('lost not improved~ {}'.format(cnt_wait))
@@ -353,7 +354,7 @@ def model_train(args):
         print('{}_mean:{},{}_var:{}'.format(key, np.mean(lst), key, np.std(lst)))
         # print('{}:{}'.format(key, lst))
 
-def model_train_devign(args):
+def model_train_CVEfixes(args):
     # record the result of each exp
     ma_dic_list = dict.fromkeys(['ma_20', 'ma_40', 'ma_60'])
     for key in ma_dic_list.keys():
@@ -386,7 +387,7 @@ def model_train_devign(args):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
 
-        dataset = vulDGLDataset("devign", raw_dataframe_path=args.dataframe_path, save_dir=args.save_dir)
+        dataset = vulDGLDataset("CVEfixes", raw_dataframe_path=args.dataframe_path, save_dir=args.save_dir)
         # build the model, train_loader and optimizer
         model, train_loader, optimizer = make4GraphClassification(args, dataset)
         print(model)
@@ -476,4 +477,4 @@ if __name__ == '__main__':
     #     test_pre_trained_model(args)
     # else:  # train new model
     # model_train(args)
-    model_train_devign(args)
+    model_train_CVEfixes(args)

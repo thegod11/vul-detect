@@ -115,6 +115,7 @@ class VulGraphDataset(Dataset):
         print(f'Saving in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe.pkl")} .....')
         self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset_name}_dataframe.pkl"))
         torch.save(data_list, self.processed_paths[0])
+        print(f'Saved in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe.pkl")} !!!')
         
     def len(self) -> int:
         return len(self.data_list)

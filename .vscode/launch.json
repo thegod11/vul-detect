@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/baseline/GTC/code",
             "args": [
-                "devign"
+                "CVEfixes"
             ]
         },
 
