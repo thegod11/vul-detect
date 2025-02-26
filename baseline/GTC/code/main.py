@@ -163,7 +163,7 @@ def train_flow(model, train_loader, optimizer, config, category, pos, own_str, e
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            print("exp={}; epoch: {};batch-{}; loss {}".format(exp, epoch, batch_id, loss.data.cpu()))
+            print("exp={}; epoch: {}; batch-{}; loss {}".format(exp, epoch, batch_id, loss.data.cpu()))
 
         print(" epoch: {}; epoch_loss {}".format(epoch, loss_epoch.data.cpu()))
         if loss_epoch < best:
@@ -196,8 +196,9 @@ def train_flow_devign(model, train_loader, optimizer, config, category, own_str,
     for epoch in range(config.nb_epochs):
         model.train()
         loss_epoch = 0
-        for batch_id, (graphs, label) in enumerate(train_loader):
+        for batch_id, (graphs, labels) in enumerate(train_loader):
             blocks = graphs.to(config.device)
+            labels = labels.to(config.device)
             # blocks = [block.to(config.device) for block in blocks]
             # for GNN_branch batch data
             if 'h' in blocks.ndata:
@@ -218,13 +219,13 @@ def train_flow_devign(model, train_loader, optimizer, config, category, own_str,
             # [num_meta-paths,num_nodes,num_hops,feature_dim}
             multi_hop_features = blocks.ndata['multi_hop_feature'].permute(1, 0, 2, 3)
 
-            loss = model(g=blocks, feats=input_fea4GNN, multi_hop_features=multi_hop_features, pos=pos_batch,
-                         mini_batch_flag=False)
+            loss, acc, precision, recall, f1 = model(g=blocks, feats=input_fea4GNN, multi_hop_features=multi_hop_features, pos=pos_batch, labels=labels, mini_batch_flag=False)
             loss_epoch = loss_epoch + loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            print("exp={}; epoch: {}; batch-{}; loss {}".format(exp, epoch, batch_id, loss.data.cpu()))
+            
+            print("exp={}; epoch: {};batch-{}; loss {}; acc {}; precision {}; recall {}; f1 {};".format(exp, epoch, batch_id, loss.data.cpu(), acc, precision, recall, f1))
 
         print(" epoch: {}; epoch_loss {}".format(epoch, loss_epoch.data.cpu()))
         if loss_epoch < best:

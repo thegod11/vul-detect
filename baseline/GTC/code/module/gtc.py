@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from .contrast import Contrast
 from .transformer_model import TransformerModel
 from .gnn_encoder import GNN_encoder
+import dgl
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 class LogReg(nn.Module):
     def __init__(self, ft_in, nb_classes):
@@ -111,29 +113,50 @@ class GTC(nn.Module):
         # contrast task
         self.contrast = Contrast(self.hidden_dim, tau, lam)
 
-    def forward(self, g, feats, multi_hop_features, pos, mini_batch_flag=False):  # p a s
+    def forward(self, g, feats, multi_hop_features, pos, labels=None, mini_batch_flag=False, mode="train"):
+        h_all = {node_key: F.elu(self.feat_drop(self.fc_list[i](feats[node_key])))
+                 for i, node_key in enumerate(feats.keys())}
 
-        h_all = {}
-        for i, node_key in enumerate(feats.keys()):
-            h_all[node_key] = F.elu(self.feat_drop(self.fc_list[i](feats[node_key])))
-
-        z_mp_list = []
-        for i in range(len(multi_hop_features)):
-            z_mp_list.append(
-                self.att_embeddings_proj(self.transformer_list[i](multi_hop_features[i])))
-        # z_mp_list : 3 * [orch.Size([bs, 256])]
+        # 处理 Transformer 分支
+        z_mp_list = [self.att_embeddings_proj(self.transformer_list[i](multi_hop_features[i]))
+                     for i in range(len(multi_hop_features))]
         z_transformer = self.sematic_attention(z_mp_list)
-        # z_transformer.shape torch.Size([bs, 256])
 
+        # 处理 GNN 分支
         z_gnn = self.gnn_branch(g=g, feat=h_all, mini_batch_flag=mini_batch_flag)
-        # z_gnn : torch.Size([139, 256])
         loss = self.contrast(z_transformer, z_gnn, pos)
-        return loss
 
-        # fused_features = torch.cat([z_transformer, z_gnn], dim=-1)  # Concatenate along the last dimension
-        # output = self.logreg_model(fused_features)
+        # 计算最终的节点表示
+        fused_features = torch.cat([z_transformer, z_gnn], dim=-1)
+        g.ndata["fused_features"] = fused_features
+        graph_embed = dgl.mean_nodes(g, "fused_features")
+        logits = self.logreg_model(graph_embed)
 
-        # return output 
+        if mode == "train":
+            if labels is not None:
+                loss += F.cross_entropy(logits, labels)
+
+                pred_labels = torch.argmax(logits, dim=1).cpu().numpy()
+                true_labels = labels.cpu().numpy()
+
+                acc = accuracy_score(true_labels, pred_labels)
+                precision = precision_score(true_labels, pred_labels, average="binary", zero_division=0)
+                recall = recall_score(true_labels, pred_labels, average="binary", zero_division=0)
+                f1 = f1_score(true_labels, pred_labels, average="binary")
+
+                return loss, acc, precision, recall, f1
+
+            return loss
+
+        elif mode == "pred":
+            if logits.shape[1] == 1:  # 二分类
+                pred_probs = torch.sigmoid(logits).squeeze()
+                pred_labels = (pred_probs > 0.5).long()
+            else:  # 多分类
+                pred_probs = torch.softmax(logits, dim=1)
+                pred_labels = torch.argmax(pred_probs, dim=1)
+
+            return pred_labels.cpu().numpy(), pred_probs.cpu().numpy()
 
 
     def get_gnn_embeds(self, g, feat, mini_batch_flag):
@@ -143,7 +166,7 @@ class GTC(nn.Module):
         z_gnn = self.gnn_branch(g=g, feat=h_all, mini_batch_flag=mini_batch_flag)
         return z_gnn
 
-    def get_embeds(self, multi_hop_features):   ## 最终用多条特征作为
+    def get_embeds(self, multi_hop_features):   
         z_mp_list = []
         for i in range(len(multi_hop_features)):
             z_mp_list.append(self.att_embeddings_proj(self.transformer_list[i](multi_hop_features[i])))

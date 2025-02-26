@@ -44,6 +44,7 @@ kill 进程号
 ```bash
 nohup python ./baseline/GTC/code/main.py CVEfixes > /root/autodl-tmp/output-gtc-train.log 2>&1 &
 tail -f /root/autodl-tmp/output-gtc-train.log
+ps -ef | grep main.py
 ```
 
 ### Joern version v2.0.347
