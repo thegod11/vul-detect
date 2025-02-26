@@ -112,7 +112,7 @@ class VulGraphDataset(Dataset):
         tqdm.pandas()
         self.df["torch_geometrics_data"] = self.df.progress_apply(lambda row: [self.data_build(row, data_list, e) for e in ["ast", "cfgcdg", "pdg"]], axis=1)
 
-        print('Saving...')
+        print(f'Saving in {os.path.join(self.processed_dir, f"{dataset}_dataframe.pkl")} .....')
         self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset}_dataframe.pkl"))
         torch.save(data_list, self.processed_paths[0])
         

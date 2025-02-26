@@ -23,6 +23,7 @@ Training
 - cfexplainer 's VulGraphDataset nodes/egdes' features extraction, build torch_geometric Data
 - vulDGLDataset build Heterogeneous graph DGL dataset, and build GraphDataLoader to load train data for GTC
    - notice check_validity、itempath function, modify for dataset
+- nohup python -cpg -embed -gtc -dataloaders save -train -path ./data/model/my_best_vul_LMGGNN.pth > /root/autodl-tmp/output-dataprocess.log 2>&1 &
 ### Joern version v2.0.291
 
 [Joern version v2.0.291](https://github.com/joernio/joern/releases/tag/v2.0.291)

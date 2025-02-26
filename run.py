@@ -16,6 +16,7 @@ from utils.data.torch_geometrics_process.cfexplainer.helpers.utils import *
 from models.LMGNN import BertGGCN
 from baseline.training_val_test import train, validate, test, save_checkpoint, load_checkpoint
 import os
+import sys
 from sklearn.utils import shuffle
 from transformers import (BertConfig, BertForMaskedLM, BertTokenizer,
                           GPT2Config, GPT2LMHeadModel, GPT2Tokenizer,
@@ -351,6 +352,7 @@ if __name__ == '__main__':
 
         language_model = model_class.from_pretrained(model_name_or_path, from_tf=bool('.ckpt' in model_name_or_path), config=config)
         dataset = VulGraphDataset(filtered_dataset=filtered_dataset ,root=str("utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes"), encoder=language_model, tokenizer=tokenizer, partition=partition)
+        sys.exit(0)
         
     '''
     CPG_generator(), generate CPG datasets using Joern
