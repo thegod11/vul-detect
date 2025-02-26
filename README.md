@@ -15,7 +15,10 @@ Training
 - the model predict always 0, due to vanishing gradients
    - Remove the log operation during forward (and also th.clamp but it is not present in original repo)
    - Use leaky_relu instead of relu in the conv layers (seems to have better performance)
-
+### Dependencies
+```bash
+pipreqs .  --ignore ./tmp
+```
 ### Dataset preprocess
 - align to devign dataset columns: project、commit_id、target、func
 - modify config.json to load right dataset.json
@@ -23,9 +26,9 @@ Training
 - cfexplainer 's VulGraphDataset nodes/egdes' features extraction, build torch_geometric Data
 - vulDGLDataset build Heterogeneous graph DGL dataset, and build GraphDataLoader to load train data for GTC
    - notice check_validity、itempath function, modify for dataset
-- 运行代码
+- process command
 ```bash
-nohup python -cpg -embed -gtc -dataloaders save -train -path ./data/model/my_best_vul_LMGGNN.pth > /root/autodl-tmp/output-dataprocess.log 2>&1 &
+nohup python run.py -cpg -embed -gtc -dataloaders save -train -path ./data/model/my_best_vul_LMGGNN.pth > /root/autodl-tmp/output-dataprocess.log 2>&1 &
 tail -f /root/autodl-tmp/output-dataprocess.log
 ps -ef | grep run.py
 kill 进程号

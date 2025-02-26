@@ -353,6 +353,7 @@ if __name__ == '__main__':
         language_model = model_class.from_pretrained(model_name_or_path, from_tf=bool('.ckpt' in model_name_or_path), config=config)
         dataset = VulGraphDataset(filtered_dataset=filtered_dataset ,root=str("utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes"), encoder=language_model, tokenizer=tokenizer, partition=partition)
         sys.exit(0)
+        # os.system("/usr/bin/shutdown")
         
     '''
     CPG_generator(), generate CPG datasets using Joern
