@@ -26,11 +26,14 @@ import datetime
 import random
 from self_tools.data_tools import load_data, get_batch_pos
 from self_tools.evaluate import evaluate_for_test, evaluate_for_train
+from sklearn.metrics import f1_score, accuracy_score, recall_score, precision_score, roc_auc_score
 from self_tools.params import set_params
 from dgl.dataloading import GraphDataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from dgl.data import DGLDataset
-from vulDGLDataset import vulDGLDataset
+from vulDGLDataset import vulDGLDataset, vulDGLDataset_ds, BalancedBatchSampler
+from sklearn.metrics import confusion_matrix
+from classifier import ClassifierTrainer, extract_embeddings
 
 args = set_params()
 if torch.cuda.is_available() and args.device > -1:
@@ -59,7 +62,7 @@ def make(config, dgl_graph, feats_dim_list, P, h_dict, category, all_node_idx,
     :param all_node_idx:
     :param num_classes:
     :param mini_batch_flag:
-    :return: model，train_loader,optimizer
+    :return: model, train_loader,optimizer
     """
     print("seed ", config.seed)
     print("Dataset: ", config.dataset)
@@ -100,7 +103,7 @@ def make4GraphClassification(config, dataset):
     :param category:
     :param all_node_idx:
     :param mini_batch_flag:
-    :return: model, train_loader,optimizer
+    :return: model, train_loader, optimizer
     """
     print("seed ", config.seed)
     print("Dataset: ", config.dataset)
@@ -108,20 +111,26 @@ def make4GraphClassification(config, dataset):
     # build the GTC model
     P = len(dataset.etypes)
     feats_dim_list = [dataset.fea_dim]
+    
     model = GTC(config.hidden_dim, feats_dim_list, config.feat_drop, P, config.tau, config.lam,
                 t_hops=config.t_hops, t_n_class=None, t_input_dim=dataset.fea_dim,
                 t_pe_dim=config.t_pe_dim, t_n_layers=config.t_n_layers, t_num_heads=config.t_n_heads,
                 t_dropout_rate=config.t_dropout,
                 t_attention_dropout_rate=config.t_attention_dropout, rel_names=dataset.etypes, category=dataset.category,
                 gnn_branch_layer_num=config.gnn_branch_layer_num)
+
+    if False and os.path.exists('../data/checkpoint/GTC_' + config.dataset + '.pkl'):
+        model.load_state_dict(torch.load('../data/checkpoint/GTC_' + config.dataset + '.pkl'))
+        print(f'load pre-trained model from ../data/checkpoint/GTC_{config.dataset}.pkl !')
     # build the optimizer for GTC
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.l2_coef)
 
     num_examples = len(dataset)
     num_train = int(num_examples * 0.8)
 
-    train_sampler = SubsetRandomSampler(torch.arange(num_train))
-    train_dataloader = GraphDataLoader(dataset, sampler=train_sampler, batch_size=config.batch_size, drop_last=False)
+    # train_sampler = SubsetRandomSampler(torch.arange(num_train))
+    train_sampler = BalancedBatchSampler(dataset, batch_size=config.batch_size)
+    train_dataloader = GraphDataLoader(dataset, batch_sampler=train_sampler, drop_last=False, num_workers=8)
 
     return model, train_dataloader, optimizer
 
@@ -186,6 +195,86 @@ def train_flow(model, train_loader, optimizer, config, category, pos, own_str, e
     print('-' * 40)
     return best_t
 
+def test_flow_cvefixes(model, test_loader, config, category, exp=0):
+    print('-' * 60)
+    print('Testing for exp-{}'.format(exp))
+    model.eval()
+    
+    # 初始化存储容器
+    all_preds = []
+    all_idxs = []
+    all_probs = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for batch_id, (idxs, graphs, labels, languages) in enumerate(test_loader):
+            graphs = graphs.to(config.device)
+            labels = labels.to(config.device)
+
+            # 特征提取
+            if 'h' in graphs.ndata:
+                input_fea4GNN = graphs.ndata['h']
+            elif 'feature' in graphs.ndata:
+                input_fea4GNN = graphs.ndata['feature']
+            else:
+                raise ValueError("Feature key not found in graph data")
+                
+            if not isinstance(input_fea4GNN, dict):
+                input_fea4GNN = {category: input_fea4GNN}
+                
+            multi_hop_features = graphs.ndata['multi_hop_feature'].permute(1, 0, 2, 3)
+
+            # 模型预测
+            preds, probs = model(
+                g=graphs, 
+                feats=input_fea4GNN, 
+                multi_hop_features=multi_hop_features, 
+                mini_batch_flag=False,
+                mode="pred"
+            )
+            
+            # 收集结果
+            all_idxs.append(idxs)
+            all_probs.append(probs[:, 1])
+            all_preds.append(preds)
+            all_labels.append(labels.cpu())
+
+    # 合并所有结果
+    all_idxs = np.concatenate(all_idxs)
+    all_probs = np.concatenate(all_probs)
+    all_preds = np.concatenate(all_preds)
+    all_labels = np.concatenate(all_labels)
+
+    # 计算混淆矩阵
+    tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
+
+    # 计算 FPR 和 FNR
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+    fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
+
+    # 计算指标
+    metrics = {
+        "accuracy": accuracy_score(all_labels, all_preds),
+        "f1": f1_score(all_labels, all_preds),
+        "recall": recall_score(all_labels, all_preds),
+        "precision": precision_score(all_labels, all_preds),
+        "auc": roc_auc_score(all_labels, all_probs),
+        "fpr": fpr,  # 假阳率
+        "fnr": fnr   # 假阴率
+    }
+
+    # 打印结果
+    print(f"\nTest Results (exp-{exp})")
+    print(f"Accuracy: {metrics['accuracy']:.4f}")
+    print(f"F1 Score: {metrics['f1']:.4f}")
+    print(f"Recall:   {metrics['recall']:.4f}")
+    print(f"Precision:{metrics['precision']:.4f}")
+    print(f"AUC:      {metrics['auc']:.4f}")
+    print(f"FPR:      {metrics['fpr']:.4f}")  # 假阳率
+    print(f"FNR:      {metrics['fnr']:.4f}")  # 假阴率
+    
+    return metrics
+
 def train_flow_devign(model, train_loader, optimizer, config, category, own_str, exp=0):
     cnt_wait = 0
     best = 1e9
@@ -196,46 +285,52 @@ def train_flow_devign(model, train_loader, optimizer, config, category, own_str,
     for epoch in range(config.nb_epochs):
         model.train()
         loss_epoch = 0
-        for batch_id, (graphs, labels) in enumerate(train_loader):
-            blocks = graphs.to(config.device)
+        for batch_id, items in enumerate(train_loader):
+            idx, graphs, labels, languages, cve_ids = items['idx'], items['graph'], items['label'], items['language'], items['cve_id']
+            graphs = graphs.to(config.device)
             labels = labels.to(config.device)
             # blocks = [block.to(config.device) for block in blocks]
             # for GNN_branch batch data
-            if 'h' in blocks.ndata:
-                input_fea4GNN = blocks.ndata['h']
-            elif 'feature' in blocks.ndata:
-                input_fea4GNN = blocks.ndata['feature']
+            if 'h' in graphs.ndata:
+                input_fea4GNN = graphs.ndata['h']
+            elif 'feature' in graphs.ndata:
+                input_fea4GNN = graphs.ndata['feature']
             else:
                 print('please specify the feature key!')
                 return
             if not isinstance(input_fea4GNN, dict):
                 input_fea4GNN = {category: input_fea4GNN}
             # deal with pos for mini-batch
-            pdg = blocks.adj(etype="pdg").to_dense()
-            ast = blocks.adj(etype="ast").to_dense()
-            cfg = blocks.adj(etype="cfgcdg").to_dense()
+            pdg = graphs.adj(etype="pdg").to_dense()
+            ast = graphs.adj(etype="ast").to_dense()
+            cfg = graphs.adj(etype="cfgcdg").to_dense()
             pos_batch = ((pdg + ast + cfg) >= 3).float().fill_diagonal_(1).to_sparse().cuda()
             # pos_batch = get_batch_pos(pos=pos, batch_node_id_x=output_nodes[category].numpy()).to(config.device)
             # [num_meta-paths,num_nodes,num_hops,feature_dim}
-            multi_hop_features = blocks.ndata['multi_hop_feature'].permute(1, 0, 2, 3)
+            multi_hop_features = graphs.ndata['multi_hop_feature'].permute(1, 0, 2, 3)
 
-            loss, acc, precision, recall, f1 = model(g=blocks, feats=input_fea4GNN, multi_hop_features=multi_hop_features, pos=pos_batch, labels=labels, mini_batch_flag=False)
+            loss = model(g=graphs, feats=input_fea4GNN, multi_hop_features=multi_hop_features, pos=pos_batch,languages=languages, cve_ids=cve_ids, mini_batch_flag=False)
             loss_epoch = loss_epoch + loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             
-            print("exp={}; epoch: {};batch-{}; loss {}; acc {}; precision {}; recall {}; f1 {};".format(exp, epoch, batch_id, loss.data.cpu(), acc, precision, recall, f1))
+            print("exp={}; epoch: {};batch-{}; loss {}; ".format(exp, epoch, batch_id, loss.data.cpu()))
 
         print(" epoch: {}; epoch_loss {}".format(epoch, loss_epoch.data.cpu()))
-        if loss_epoch < best:
+        if loss_epoch < best :
             print('best loss: {}->{}'.format(best, loss_epoch))
             best = loss_epoch
             best_t = epoch
             cnt_wait = 0
             # save better checkpoint~
             os.makedirs('../data/checkpoint', exist_ok=True)
-            torch.save(model.state_dict(), '../data/checkpoint/GTC_' + own_str + '.pkl')
+            torch.save(model.state_dict(), '../data/checkpoint/GTC_' + own_str + f'.pkl')
+            print("save model in ../data/checkpoint/GTC_" + own_str + f'.pkl !!!')
+        elif epoch % 300 == 0:
+            os.makedirs('../data/other-checkpoints', exist_ok=True)
+            torch.save(model.state_dict(), '../data/other-checkpoints/GTC_' + own_str + f'_epoch_{epoch}.pkl')
+            print("save model in ../data/other-checkpoints/GTC_" + own_str + f'_epoch_{epoch}.pkl !!!')
         else:
             cnt_wait += 1
             print('lost not improved~ {}'.format(cnt_wait))
@@ -356,17 +451,6 @@ def model_train(args):
         # print('{}:{}'.format(key, lst))
 
 def model_train_CVEfixes(args):
-    # record the result of each exp
-    ma_dic_list = dict.fromkeys(['ma_20', 'ma_40', 'ma_60'])
-    for key in ma_dic_list.keys():
-        ma_dic_list[key] = []
-    mi_dic_list = dict.fromkeys(['mi_20', 'mi_40', 'mi_60'])
-    for key in mi_dic_list.keys():
-        mi_dic_list[key] = []
-    auc_dic_list = dict.fromkeys(['auc_20', 'auc_40', 'auc_60'])
-    for key in auc_dic_list.keys():
-        auc_dic_list[key] = []
-
     for exp in range(exp_num):  # every exp
         print('-' * 60)
         print('exp:{}'.format(exp))
@@ -379,7 +463,7 @@ def model_train_CVEfixes(args):
             device = torch.device("cpu")
 
         # name of intermediate document
-        own_str = args.dataset + '_' + str(exp)
+        own_str = args.dataset + '_graph_contrast_exp_' + str(exp)
 
         # random seed
         seed = args.seed
@@ -388,7 +472,7 @@ def model_train_CVEfixes(args):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
 
-        dataset = vulDGLDataset("CVEfixes", raw_dataframe_path=args.dataframe_path, save_dir=args.save_dir)
+        dataset = vulDGLDataset_ds("CVEfixes", raw_dataframe_path=args.dataframe_path, save_dir=args.save_dir)
         # build the model, train_loader and optimizer
         model, train_loader, optimizer = make4GraphClassification(args, dataset)
         print(model)
@@ -396,45 +480,42 @@ def model_train_CVEfixes(args):
         if torch.cuda.is_available() and args.device > -1:
             print('Using CUDA~')
             model.to(device)
-            # labels = labels.cuda()
-            # for index in range(len(train_idx_list)):
-            #     train_idx_list[index] = train_idx_list[index].long().cuda()
-            #     val_idx_list[index] = val_idx_list[index].long().cuda()
-            #     test_idx_list[index] = test_idx_list[index].long().cuda()
 
         # train the model~
         best_t = train_flow_devign(model, train_loader, optimizer, args, dataset.category, own_str, exp=exp)
-        
-        # test the model~
-        # print('-' * 40)
-        # print('test paradigm~')
-        # print('Loading {}th epoch'.format(best_t))
-        # # load checkpoint
-        # model.load_state_dict(torch.load('../data/GTC_' + own_str + '.pkl'))
-        # fea_evalue = dgl_graph.nodes[dataset.category].data['multi_hop_feature'].to(device)
-        # # test flow
-        # test(model, args, train_idx_list, val_idx_list, test_idx_list, labels, num_classes, fea_evalue, ma_dic_list,
-        #      mi_dic_list, auc_dic_list)
 
         endtime = datetime.datetime.now()
         time = (endtime - starttime).seconds
         print("Total time: ", time, "s")
 
-    # print the result
-    for key in ma_dic_list.keys():
-        lst = ma_dic_list[key]
-        print('{}_mean:{},{}_var:{}'.format(key, np.mean(lst), key, np.std(lst)))
-        # print('{}:{}'.format(key, lst))
+def model_test_CVEfixes(args):
+    if torch.cuda.is_available() and args.device > -1:
+        device = torch.device("cuda:0")
+        torch.cuda.set_device(args.device)
+    else:
+        device = torch.device("cpu")
 
-    for key in mi_dic_list.keys():
-        lst = mi_dic_list[key]
-        print('{}_mean:{},{}_var:{}'.format(key, np.mean(lst), key, np.std(lst)))
-        # print('{}:{}'.format(key, lst))
+    # name of intermediate document
+    own_str = args.dataset + '_test'
 
-    for key in auc_dic_list.keys():
-        lst = auc_dic_list[key]
-        print('{}_mean:{},{}_var:{}'.format(key, np.mean(lst), key, np.std(lst)))
-        # print('{}:{}'.format(key, lst))
+    # random seed
+    seed = args.seed
+    numpy.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+    dataset = vulDGLDataset("CVEfixes", raw_dataframe_path=args.test_dataframe_path, save_dir=args.test_data_save_dir)
+    # build the model, test_loader and optimizer
+    model, test_loader, optimizer = make4GraphClassification(args, dataset)
+    print(model)
+
+    if torch.cuda.is_available() and args.device > -1:
+        print('Using CUDA~')
+        model.to(device)
+
+    # test the model~
+    metircs = test_flow_cvefixes(model, test_loader, args, dataset.category)
 
 def test_pre_trained_model(args):
     model = torch.load('../data/{}_model.pkl'.format(args.dataset))
@@ -472,10 +553,90 @@ def test_pre_trained_model(args):
     time = (endtime - starttime).seconds
     print("Total time: ", time, "s")
 
+def main_train_classifier(args):
+    # 固定随机种子保证可重复性
+    seed = args.seed
+    numpy.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
 
-if __name__ == '__main__':
-    # if args.load_from_pretrained:  # test the pretrained model
-    #     test_pre_trained_model(args)
-    # else:  # train new model
-    # model_train(args)
-    model_train_CVEfixes(args)
+    # 设备设置
+    device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() and args.device > -1 else "cpu")
+    print(f"Using device: {device}")
+
+    # 加载数据集（需与预训练时相同）
+    dataset = vulDGLDataset_ds("CVEfixes", 
+                          raw_dataframe_path=args.dataframe_path,
+                          save_dir=args.save_dir)
+    test_dataset = vulDGLDataset_ds("CVEfixes", 
+                          raw_dataframe_path=args.test_dataframe_path, 
+                          save_dir=args.test_data_save_dir)
+    
+    # 构建模型结构（需与预训练模型完全一致）
+    model, train_loader, _ = make4GraphClassification(args, dataset)
+    _, test_loader, _ = make4GraphClassification(args, test_dataset)
+    model = model.to(device)
+
+    # 加载预训练权重
+    pretrained_path = args.pretrained_path
+    model.load_state_dict(torch.load(pretrained_path, map_location=device))
+    print(f"Loaded pretrained weights from {pretrained_path}")
+
+    # 冻结模型参数
+    for param in model.parameters():
+        param.requires_grad = False
+    model.eval()
+
+    # 提取图嵌入特征
+    print("Extracting graph embeddings...")
+    train_data = extract_embeddings(model, train_loader, args, dataset.category)
+    print("Extracting test dataset 's graph embeddings...")
+    test_data = extract_embeddings(model, test_loader, args, dataset.category)
+    
+    # 训练分类器
+    X_train, y_train, X_test, y_test, idxes = train_data["embeddings"], train_data["labels"], test_data["embeddings"], test_data["labels"], test_data["indexes"]
+    print(f"Training classifier on {X_train.shape[0]} samples...")
+    trainer = ClassifierTrainer(device=device)
+    trainer._plot_distribution(args, train_data, test_data)
+    
+    # 训练所有分类器
+    print("\nTraining MLP:")
+    mlp_model = trainer.train_mlp(X_train, y_train, X_train.shape[1])
+    
+    print("\nTesting MLP:")
+    mlp_metrics = trainer.test(args, mlp_model, X_test, y_test, 'mlp', idxes)
+    print(f"MLP测试结果: {mlp_metrics}")
+
+    print("\nTraining SVM:")
+    svm_model = trainer.train_sklearn_model(X_train, y_train, 'svm')
+    print("\nTesting SVM:")
+    svm_metrics = trainer.test(args, svm_model, X_test, y_test, 'svm', idxes)
+    print(f"SVM测试结果: {svm_metrics}")
+
+    print("\nTraining Random Forest:")
+    rf_model = trainer.train_sklearn_model(X_train, y_train, 'rf')
+    print("\nTesting Random Forest:")
+    rf_metrics = trainer.test(args, rf_model, X_test, y_test, 'rf', idxes)
+    print(f"RF测试结果: {rf_metrics}")
+
+    print("\nTraining XGBoost:")
+    xgb_model = trainer.train_sklearn_model(X_train, y_train, 'xgb')
+    print("\nTesting XGBoost:")
+    xgb_metrics = trainer.test(args, xgb_model, X_test, y_test, 'xgb', idxes)
+    print(f"XGB测试结果: {xgb_metrics}")
+
+    return {
+        'mlp': (mlp_model, mlp_metrics),
+        'svm': (svm_model, svm_metrics),
+        'rf': (rf_model, rf_metrics),
+        'xgb': (xgb_model, xgb_metrics)
+    }
+
+if __name__ == "__main__":
+    if args.task == "test":  # test the pretrained model
+        model_test_CVEfixes(args)
+    elif args.task == "train":  # train new model
+        model_train_CVEfixes(args)
+    elif args.task == "train_classifer":  # train classifier
+        main_train_classifier(args)

@@ -1,0 +1,46 @@
+{
+    "bertggnn": {
+        "learning_rate" : 1e-4,
+        "weight_decay" : 1.3e-6,
+        "pred_lambda" : 0.5,
+        "model": {
+            "gated_graph_conv_args": {"out_channels" : 200, "num_layers" : 6, "aggr" : "add", "bias": true},
+            "conv_args": {
+                "conv1d_1" : {"in_channels": 205, "out_channels": 50, "kernel_size": 3, "padding" : 1},
+                "conv1d_2" : {"in_channels": 50, "out_channels": 20, "kernel_size": 1, "padding" : 1},
+                "maxpool1d_1" : {"kernel_size" : 3, "stride" : 2},
+                "maxpool1d_2" : {"kernel_size" : 2, "stride" : 2}
+            },
+            "emb_size" : 200
+        }
+    },
+    "create" : {
+        "slice_size": 100,
+        "joern_cli_dir": "joern/joern-cli/"
+    },
+    "paths" : {
+        "cpg" : "data/cpg/CVEfixes/",
+        "joern" : "data/joern/CVEfixes/",
+        "raw" : "data/raw/CVEfixes/",
+        "input" : "data/input/CVEfixes/",
+        "model" : "data/model/CVEfixes/",
+        "tokens" : "data/tokens/CVEfixes/"
+    },
+    "files" : {
+        "raw" : "dataset_c#.json",
+        "cpg" : "cpg",
+        "tokens" : "tokens.pkl",
+        "input" : "input.pkl"
+    },
+    "embed" : {
+        "nodes_dim" : 205,
+        "edge_type": "Cpg"
+    },
+    "process" : {
+        "epochs" : 3,
+        "patience" : 10,
+        "batch_size" : 8,
+        "dataset_ratio" : 0.2,
+        "shuffle" : true
+    }
+}

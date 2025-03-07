@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .contrast import Contrast
+from .contrast import Contrast, GraphLevelContrast
 from .transformer_model import TransformerModel
 from .gnn_encoder import GNN_encoder
 import dgl
@@ -112,8 +112,9 @@ class GTC(nn.Module):
         self.logreg_model = LogReg(self.hidden_dim*2 , 2)
         # contrast task
         self.contrast = Contrast(self.hidden_dim, tau, lam)
+        self.graph_contrast = GraphLevelContrast(hidden_dim=self.hidden_dim*2, tau=tau, alpha=0.7)
 
-    def forward(self, g, feats, multi_hop_features, pos, labels=None, mini_batch_flag=False, mode="train"):
+    def forward(self, g, feats, multi_hop_features, pos, cve_ids=None, languages=None, mini_batch_flag=False, mode="train"):
         h_all = {node_key: F.elu(self.feat_drop(self.fc_list[i](feats[node_key])))
                  for i, node_key in enumerate(feats.keys())}
 
@@ -133,30 +134,15 @@ class GTC(nn.Module):
         logits = self.logreg_model(graph_embed)
 
         if mode == "train":
-            if labels is not None:
-                loss += F.cross_entropy(logits, labels)
-
-                pred_labels = torch.argmax(logits, dim=1).cpu().numpy()
-                true_labels = labels.cpu().numpy()
-
-                acc = accuracy_score(true_labels, pred_labels)
-                precision = precision_score(true_labels, pred_labels, average="binary", zero_division=0)
-                recall = recall_score(true_labels, pred_labels, average="binary", zero_division=0)
-                f1 = f1_score(true_labels, pred_labels, average="binary")
-
-                return loss, acc, precision, recall, f1
+            if languages is not None and cve_ids is not None:
+                # 计算对比损失
+                contrast_loss = self.graph_contrast(graph_embed, cve_ids, languages)
+                loss += contrast_loss
 
             return loss
 
         elif mode == "pred":
-            if logits.shape[1] == 1:  # 二分类
-                pred_probs = torch.sigmoid(logits).squeeze()
-                pred_labels = (pred_probs > 0.5).long()
-            else:  # 多分类
-                pred_probs = torch.softmax(logits, dim=1)
-                pred_labels = torch.argmax(pred_probs, dim=1)
-
-            return pred_labels.cpu().numpy(), pred_probs.cpu().numpy()
+            return graph_embed
 
 
     def get_gnn_embeds(self, g, feat, mini_batch_flag):

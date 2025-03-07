@@ -70,6 +70,9 @@ def preprocess_devign(row):
         elif row['programming_language'] == 'C++':
             row['func'] = process_cpp_file(row['func'])
             fpath1 = savedir / f"{row['idx']}.cpp"
+        elif row['programming_language'] == 'C#':
+            row['func'] = "class Mock {\n" + row['func'] + "\n}"
+            fpath1 = savedir / f"{row['idx']}.cs"
     else:
         fpath1 = savedir / f"{row['idx']}.c"
         

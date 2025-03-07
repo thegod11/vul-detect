@@ -21,8 +21,9 @@ pipreqs .  --ignore ./tmp
 ```
 ### Dataset preprocess
 - align to devign dataset columns: project、commit_id、target、func
-- modify config.json to load right dataset.json
-- Look at `select` function in `run.py`
+   - ./vul-detect/data/raw/CVEfixes/convert.ipynb
+- modify config.json to load right dataset.json, and change ./vul-detect/configs.py 's file_path parameter default value
+- debug run.py with option "-gtc -cpg" to get graph info
 - cfexplainer 's VulGraphDataset nodes/egdes' features extraction, build torch_geometric Data
 - vulDGLDataset build Heterogeneous graph DGL dataset, and build GraphDataLoader to load train data for GTC
    - notice check_validity、itempath function, modify for dataset
@@ -42,7 +43,8 @@ kill 进程号
 ### Train Model
 - train GTC script
 ```bash
-nohup python ./baseline/GTC/code/main.py CVEfixes > /root/autodl-tmp/output-gtc-train.log 2>&1 &
+cd vul-detect/baseline/GTC/code
+nohup python main.py CVEfixes > /root/autodl-tmp/output-gtc-train.log 2>&1 &
 tail -f /root/autodl-tmp/output-gtc-train.log
 ps -ef | grep main.py
 ```

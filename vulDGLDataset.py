@@ -8,7 +8,71 @@ from utils.data.torch_geometrics_process.cfexplainer.helpers.utils import dfmp
 from functools import partial
 import scipy.sparse as sp
 from tqdm import tqdm
+from torch.utils.data import Sampler
+from collections import defaultdict
+from dgl.dataloading import GraphCollator
 
+import numpy as np
+import torch
+from torch.utils.data import Sampler
+from collections import defaultdict
+
+class BalancedBatchSampler(Sampler):
+    def __init__(self, dataset, batch_size):
+        self.dataset = dataset
+        self.batch_size = batch_size
+
+        # 按语言和漏洞类型组织索引
+        self.lang_vul_map = defaultdict(lambda: defaultdict(list))
+        for idx in range(len(dataset)):
+            cwe = dataset.cve_ids[idx]
+            lang = dataset.languages[idx]
+            self.lang_vul_map[lang][cwe].append(idx)
+
+        # 统计信息
+        self.langs = list(self.lang_vul_map.keys())
+        self.lang_ratio = 1 / len(self.langs)
+        print(f"Language distribution: { {k: len(v) for k,v in self.lang_vul_map.items()} }")
+
+    def __iter__(self):
+        num_batches = len(self.dataset) // self.batch_size
+
+        for _ in range(num_batches):
+            batch = []
+            
+            # **随机调整每个语言的比例**
+            per_lang_base = int(self.batch_size * self.lang_ratio)
+            per_lang = np.random.randint(int(per_lang_base * 0.8), int(per_lang_base * 1.2) + 1)
+            
+            # **打乱语言顺序**
+            np.random.shuffle(self.langs)
+            for lang in self.langs:
+                available_cwes = list(self.lang_vul_map[lang].keys())
+
+                # **随机打乱 CWE 漏洞类型**
+                np.random.shuffle(available_cwes)
+
+                # **动态选择 CWE 数量**
+                num_cwe_to_sample = np.random.randint(10, min(250, len(available_cwes)) + 1)
+                selected_cwes = available_cwes[:num_cwe_to_sample]
+
+                # **从每个漏洞类型中采样**
+                for cwe in selected_cwes:
+                    candidates = self.lang_vul_map[lang][cwe]
+                    if len(candidates) > 0:
+                        num_samples_per_cwe = np.random.randint(1, max(2, per_lang // len(selected_cwes)))
+                        batch.extend(np.random.choice(candidates, 
+                                                      size=min(num_samples_per_cwe, len(candidates)), 
+                                                      replace=False))
+
+            # **确保 batch 大小**
+            batch = batch[:self.batch_size]
+            np.random.shuffle(batch)  # 最终再随机打乱 batch 内部的顺序
+            yield batch
+
+    def __len__(self):
+        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+    
 def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     """Convert a scipy sparse matrix to a torch sparse tensor."""
     sparse_mx = sparse_mx.tocoo().astype(np.float32)
@@ -79,6 +143,93 @@ def process_to_dgl(data_list, row):  # 在 data list 中添加 dgl 数据
     data_list.append(het_graph)
     locals().clear()
 
+class vulDGLDataset_ds(DGLDataset):
+    def __init__(self, name, raw_dataframe_path=None, url=None, raw_dir=None, save_dir=None, 
+                 hash_key=..., force_reload=False, verbose=False, transform=None):
+        if not os.path.exists(raw_dataframe_path):
+            raise FileNotFoundError(f"Dataframe path {raw_dataframe_path} not exist!")
+        
+        self.raw_dataframe_path = raw_dataframe_path
+        super().__init__(name, url, raw_dir, save_dir, hash_key, force_reload, verbose, transform)
+        
+        # 新增属性
+        self.category = "node"
+        self.vul_lang_map = defaultdict(lambda: defaultdict(list))  # {cve_id: {lang: [indices]}}
+        self.languages = []  # 记录每个样本的语言
+        self.cve_ids = []    # 记录每个样本的漏洞类型
+        
+        # 加载预处理数据
+        if os.path.exists(self.save_dir):
+            self._load_processed_data()
+
+        self.etypes = self.data_list[0].etypes
+        self.fea_dim = self.data_list[0].ndata["feature"].shape[-1]
+
+    def _load_processed_data(self):
+        """加载已处理数据并构建映射"""
+        # data = torch.load(self.save_dir)
+        self.data_list = torch.load(self.save_dir)
+        self.label = self.df['target'].tolist()
+        self.languages = self.df['programming_language'].tolist()
+        self.cve_ids = self.df['cve_id'].tolist()
+        
+        # 构建漏洞-语言映射
+        for idx, (cwe, lang) in enumerate(zip(self.cve_ids, self.languages)):
+            self.vul_lang_map[cwe][lang].append(idx)
+
+    def process(self):
+        """处理原始数据并保存"""
+        self.df = pd.read_pickle(self.raw_dataframe_path)
+        if os.path.exists(self.save_dir):
+            print(f"Load processed data from {self.save_dir}")
+            return
+        
+        # 初始化数据结构
+        data_list = []
+        self.label = []
+        self.languages = []
+        self.cve_ids = []
+        
+        # 并行处理数据
+        tqdm.pandas(desc="Processing graphs")
+        self.df.progress_apply(lambda row: self._process_row(row, data_list), axis=1)
+
+        # 保存处理结果
+        torch.save({
+            'graphs': data_list,
+            'labels': self.label,
+            'languages': self.languages,
+            'cve_ids': self.cve_ids
+        }, self.save_dir)
+        print(f"Saved processed data to {self.save_dir}")
+
+    def _process_row(self, row, data_list):
+        """处理单行数据"""
+        # 原有图处理逻辑
+        graph = process_to_dgl(data_list, row)  
+        
+        # 记录元信息
+        self.label.append(row['target'])
+        self.languages.append(row['programming_language'])
+        self.cve_ids.append(row['cve_id'])
+
+    def __getitem__(self, idx):
+        """返回样本及跨语言关联信息"""
+        return {
+            'idx': idx,
+            'graph': self.data_list[idx],
+            'label': self.label[idx],
+            'language': self.languages[idx],
+            'cve_id': self.cve_ids[idx]
+        }
+
+    def __len__(self):
+        return len(self.data_list)
+
+    @property
+    def num_vul_types(self):
+        return len(set(self.cve_ids))
+    
 class vulDGLDataset(DGLDataset):
     def __init__(self, name, raw_dataframe_path=None, url=None, raw_dir=None, save_dir=None, hash_key=..., force_reload=False, verbose=False, transform=None):
         if not os.path.exists(raw_dataframe_path):
@@ -115,7 +266,7 @@ class vulDGLDataset(DGLDataset):
         print(f"Saved in { self.save_dir}")
 
     def __getitem__(self, idx):
-        return self.data_list[idx], self.label[idx]
+        return idx, self.data_list[idx], self.label[idx]
     
     def __len__(self):
         return len(self.data_list)
@@ -123,6 +274,6 @@ class vulDGLDataset(DGLDataset):
     
 if __name__ == "__main__":
     # dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/vul_graph_dataset/None_processed/devign_dataframe.pkl"
-    dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe.pkl"
-    save_dir = os.path.join(os.path.dirname(dataframe_path), "dgl_hetgraph_data.pt")
+    dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe_c#.pkl"
+    save_dir = os.path.join(os.path.dirname(dataframe_path), "dgl_hetgraph_data_c#.pt")
     dataset = vulDGLDataset(name="CVEfixes", raw_dataframe_path=dataframe_path, save_dir=save_dir)

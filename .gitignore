@@ -23,6 +23,7 @@ tmp/*
 *MACOSX/*
 *.pyc
 *.pkl
+*.pth
 *.parquet
 utils/data/torch_geometrics_process/cfexplainer/storage/cache/*
 utils/data/torch_geometrics_process/cfexplainer/storage/external/joern-cli*/*

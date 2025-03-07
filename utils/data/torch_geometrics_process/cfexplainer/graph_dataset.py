@@ -59,7 +59,7 @@ class VulGraphDataset(Dataset):
     
     def data_build(self, row, data_list, edge_type):
         _id = self.idx2id[row.idx]
-        lan = "c" if "programming_language" not in row.keys() or row.programming_language == "C" else "java" if row.programming_language == "Java" else "cpp"
+        lan = "c" if "programming_language" not in row.keys() or row.programming_language == "C" else "java" if row.programming_language == "Java" else "cpp" if row.programming_language == "C++" else "cs"
         n, e = self.feature_extraction(VulGraphDataset.itempath(_id, lan), edge_type)
         x = np.array(list(n.subseq_feat.values))
         edge_index = np.array(e)
@@ -112,10 +112,10 @@ class VulGraphDataset(Dataset):
         tqdm.pandas()
         self.df["torch_geometrics_data"] = self.df.progress_apply(lambda row: [self.data_build(row, data_list, e) for e in ["ast", "cfgcdg", "pdg"]], axis=1)
 
-        print(f'Saving in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe.pkl")} .....')
-        self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset_name}_dataframe.pkl"))
+        print(f'Saving in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe_all.pkl")} .....')
+        self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset_name}_dataframe_all.pkl"))
         torch.save(data_list, self.processed_paths[0])
-        print(f'Saved in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe.pkl")} !!!')
+        print(f'Saved in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe_all.pkl")} !!!')
         
     def len(self) -> int:
         return len(self.data_list)
@@ -141,11 +141,13 @@ class VulGraphDataset(Dataset):
         _id = item["id"]
         programming_language = item["programming_language"]
 
-        lan = "c" if programming_language == "C" else "java" if programming_language == "Java" else "cpp"
+        lan = "c" if programming_language == "C" else "java" if programming_language == "Java" else "cpp" if programming_language == "C++" else "cs"
         try:
             with open(str(VulGraphDataset.itempath(_id, lan)) + ".nodes.json", "r") as f:
                 nodes = json.load(f)
                 lineNums = set()
+                if len(nodes) < 15:
+                    return False
                 for n in nodes:
                     if "lineNumber" in n.keys():
                         lineNums.add(n["lineNumber"])
@@ -158,6 +160,8 @@ class VulGraphDataset(Dataset):
                 edges = json.load(f)
                 edge_set = set([i[2] for i in edges])
                 if "REACHING_DEF" not in edge_set and "CDG" not in edge_set:
+                    return False
+                if "CFG" not in edge_set and "CDG" not in edge_set:
                     return False
                 return True
         except Exception as E:
