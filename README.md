@@ -68,6 +68,26 @@ jstat -gccapacity <pid> 1000 10
 ```
 1000 10 represent the refresh rate and the number of total output to print
 
+### Joern Use Script
+```bash
+cd /root/autodl-tmp/vul-detect/joern/joern-cli-4.0.190
+
+./joern-parse /root/autodl-tmp/vul-detect/tmp/demo.cpp -o ../../tmp/demo_cpp_cpg.bin
+
+./joern-parse /root/autodl-tmp/vul-detect/tmp/demo.cs -o ../../tmp/demo_cs_cpg.bin
+
+./joern-parse /root/autodl-tmp/vul-detect/tmp/CpgDemo.java -o ../../tmp/demo_java_cpg.bin
+
+./joern-parse /root/autodl-tmp/vul-detect/tmp/demo.c -o ../../tmp/demo_c_cpg.bin
+
+./joern-export /root/autodl-tmp/vul-detect/tmp/demo_c_cpg.bin --repr cpg14 -o ../../tmp/c
+
+./joern-export /root/autodl-tmp/vul-detect/tmp/demo_cpp_cpg.bin --repr cpg14 -o ../../tmp/cpp
+
+./joern-export /root/autodl-tmp/vul-detect/tmp/demo_cs_cpg.bin --repr cpg14 -o ../../tmp/cs
+
+./joern-export /root/autodl-tmp/vul-detect/tmp/demo_java_cpg.bin --repr cpg14 -o ../../tmp/java
+```
 ### Java JDK version 19
 19 or previous version as well
 

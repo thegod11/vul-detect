@@ -32,7 +32,7 @@ class BalancedBatchSampler(Sampler):
         # 统计信息
         self.langs = list(self.lang_vul_map.keys())
         self.lang_ratio = 1 / len(self.langs)
-        print(f"Language distribution: { {k: len(v) for k,v in self.lang_vul_map.items()} }")
+        print(f"Language-cve distribution: { {k: len(v) for k,v in self.lang_vul_map.items()} }")
 
     def __iter__(self):
         num_batches = len(self.dataset) // self.batch_size
@@ -157,6 +157,9 @@ class vulDGLDataset_ds(DGLDataset):
         self.vul_lang_map = defaultdict(lambda: defaultdict(list))  # {cve_id: {lang: [indices]}}
         self.languages = []  # 记录每个样本的语言
         self.cve_ids = []    # 记录每个样本的漏洞类型
+        self.funcs = []      # 记录每个样本的函数
+        self.ncode = []      # 记录每个样本结点的代码
+        self.max_code_len = 200
         
         # 加载预处理数据
         if os.path.exists(self.save_dir):
@@ -167,11 +170,17 @@ class vulDGLDataset_ds(DGLDataset):
 
     def _load_processed_data(self):
         """加载已处理数据并构建映射"""
-        # data = torch.load(self.save_dir)
-        self.data_list = torch.load(self.save_dir)
+        data = torch.load(self.save_dir)
+        if isinstance(data, dict):
+            self.data_list = data['graphs']
+            self.ncode = data['ncode']
+        else:
+            self.data_list = data
+
         self.label = self.df['target'].tolist()
         self.languages = self.df['programming_language'].tolist()
         self.cve_ids = self.df['cve_id'].tolist()
+        self.funcs = self.df['func'].tolist()
         
         # 构建漏洞-语言映射
         for idx, (cwe, lang) in enumerate(zip(self.cve_ids, self.languages)):
@@ -189,6 +198,7 @@ class vulDGLDataset_ds(DGLDataset):
         self.label = []
         self.languages = []
         self.cve_ids = []
+        self.ncode = []
         
         # 并行处理数据
         tqdm.pandas(desc="Processing graphs")
@@ -199,7 +209,8 @@ class vulDGLDataset_ds(DGLDataset):
             'graphs': data_list,
             'labels': self.label,
             'languages': self.languages,
-            'cve_ids': self.cve_ids
+            'cve_ids': self.cve_ids,
+            'ncode': self.ncode
         }, self.save_dir)
         print(f"Saved processed data to {self.save_dir}")
 
@@ -209,6 +220,7 @@ class vulDGLDataset_ds(DGLDataset):
         graph = process_to_dgl(data_list, row)  
         
         # 记录元信息
+        self.ncode.append(row['torch_geometrics_data'][0]._NCODE)
         self.label.append(row['target'])
         self.languages.append(row['programming_language'])
         self.cve_ids.append(row['cve_id'])
@@ -220,7 +232,9 @@ class vulDGLDataset_ds(DGLDataset):
             'graph': self.data_list[idx],
             'label': self.label[idx],
             'language': self.languages[idx],
-            'cve_id': self.cve_ids[idx]
+            'cve_id': self.cve_ids[idx],
+            "func": self.funcs[idx],
+            "ncode": self.ncode[idx][:self.max_code_len] + [" "] * (self.max_code_len - len(self.ncode[idx]))
         }
 
     def __len__(self):
@@ -274,6 +288,6 @@ class vulDGLDataset(DGLDataset):
     
 if __name__ == "__main__":
     # dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/vul_graph_dataset/None_processed/devign_dataframe.pkl"
-    dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe_c#.pkl"
-    save_dir = os.path.join(os.path.dirname(dataframe_path), "dgl_hetgraph_data_c#.pt")
-    dataset = vulDGLDataset(name="CVEfixes", raw_dataframe_path=dataframe_path, save_dir=save_dir)
+    dataframe_path = "/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe_C#_ncode.pkl"
+    save_dir = os.path.join(os.path.dirname(dataframe_path), "dgl_hetgraph_data_c#_ncode.pt")
+    dataset = vulDGLDataset_ds(name="CVEfixes", raw_dataframe_path=dataframe_path, save_dir=save_dir)

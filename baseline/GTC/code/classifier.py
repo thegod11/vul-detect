@@ -14,6 +14,7 @@ import seaborn as sns
 import pandas as pd
 from sklearn.decomposition import PCA
 import networkx as nx
+import os
 
 def extract_embeddings(model, data_loader, config, category):
     """提取图嵌入特征"""
@@ -23,10 +24,12 @@ def extract_embeddings(model, data_loader, config, category):
     all_indexes = []
     all_languages = []
     all_cve_ids = []
+    all_betas = []
+    all_funcs = []
     
     with torch.no_grad():
         for batch_id, items in enumerate(data_loader):
-            idx, graphs, labels, languages, cve_ids = items['idx'], items['graph'], items['label'], items['language'], items['cve_id']
+            idx, graphs, labels, languages, cve_ids, funcs = items['idx'], items['graph'], items['label'], items['language'], items['cve_id'], items['func']
             # 数据转移到设备
             graphs = graphs.to(config.device)
             labels = labels.to(config.device)
@@ -48,9 +51,9 @@ def extract_embeddings(model, data_loader, config, category):
             cfg = graphs.adj(etype="cfgcdg").to_dense()
             pos = ((pdg + ast + cfg) >= 3).float().fill_diagonal_(1).to_sparse().cuda()
             
-            # 多跳特征处理
+            # 多跳特征处理 [metapath, node, hop, feature]
             multi_hop = graphs.ndata['multi_hop_feature'].permute(1, 0, 2, 3)
-            
+            # multi_hop = multi_hop[0].unsqueeze(0)  # 只取第cfg图的多跳特征
             # 获取图嵌入
             embeddings = model(
                 g=graphs, 
@@ -59,19 +62,25 @@ def extract_embeddings(model, data_loader, config, category):
                 pos=pos,
                 mode='pred'  # 预训练模式返回嵌入
             )
+            # beta = model.sematic_attention.beta_values
+            beta = model.type_attention.alpha
+            all_betas.append(np.mean(beta.T, axis=0))
             
             all_embeddings.append(embeddings.cpu())
             all_labels.append(labels.cpu())
             all_indexes.append(idx)
             all_cve_ids.append(cve_ids)
             all_languages.append(languages)
+            all_funcs.append(funcs)
     
     return {
         'embeddings': torch.cat(all_embeddings).numpy(),
         'labels': torch.cat(all_labels).numpy(),
         'indexes': torch.cat(all_indexes).numpy(),
         'cve_ids': [item for sublist in all_cve_ids for item in sublist],
-        'languages': [item for sublist in all_languages for item in sublist]
+        'languages': [item for sublist in all_languages for item in sublist],
+        "betas": np.stack(all_betas),
+        "funcs": [item for sublist in all_funcs for item in sublist]
     }
 
 class ClassifierTrainer:
@@ -80,6 +89,7 @@ class ClassifierTrainer:
         self.device = device
         self.best_metrics = {}
         self.scalers = {}
+
 
     def _plot_distribution(self, args, train_data, test_data):
         """数据分布可视化（分开展示）"""
@@ -105,6 +115,44 @@ class ClassifierTrainer:
         # 语言-数据集类型-漏洞类型热力图
         self._plot_cve_language_heatmap(args, train_data, test_data)
 
+        # sematic attention分布
+        self._visualize_attention(args, train_data['betas'], test_data['betas'])
+        
+
+    def _visualize_attention(self, args, train_betas, test_betas, meta_path_names=["ast", "cfgcdg", "pdg"]):
+        plt.figure(figsize=(10, 6))
+        # 绘制整体分布
+        plt.subplot(1, 2, 1)
+        sns.violinplot(data=train_betas)
+        plt.title("Attention Distribution")
+        plt.xlabel("Meta Path Index")
+        # 绘制平均权重
+        plt.subplot(1, 2, 2)
+        mean_betas = np.mean(train_betas, axis=0)
+        plt.bar(range(len(meta_path_names)), mean_betas)
+        plt.xticks(range(len(meta_path_names)), meta_path_names, rotation=45)
+        plt.title("Average Attention Weights")
+        plt.tight_layout()
+        plt.savefig(f'{args.result_dir}/train_{args.train_mode}_attention_distribution.svg')
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        # 绘制整体分布
+        plt.subplot(1, 2, 1)
+        sns.violinplot(data=test_betas)
+        plt.title("Attention Distribution")
+        plt.xlabel("Meta Path Index")
+        # 绘制平均权重
+        plt.subplot(1, 2, 2)
+        mean_betas = np.mean(test_betas, axis=0)
+        plt.bar(range(len(meta_path_names)), mean_betas)
+        plt.xticks(range(len(meta_path_names)), meta_path_names, rotation=45)
+        plt.title("Average Attention Weights")
+        
+        plt.tight_layout()
+        plt.savefig(f'{args.result_dir}/test_{args.train_mode}_attention_distribution.svg')
+        plt.close()
+
     def _plot_lang_distribution(self, args, train_data, test_data):
         """绘制语言分布柱状图"""
         plt.figure(figsize=(8, 5))
@@ -129,7 +177,7 @@ class ClassifierTrainer:
         for container in ax.containers:
             ax.bar_label(container, fmt='%d', padding=3, fontsize=9)
         
-        plt.savefig(f'{args.result_dir}/language_distribution.svg')
+        plt.savefig(f'{args.result_dir}/{args.train_mode}_language_distribution.svg')
         plt.close()
 
     def _plot_cve_language_heatmap(self, args, train_data, test_data):
@@ -146,46 +194,101 @@ class ClassifierTrainer:
         ax = sns.heatmap(cross_table_test.T, cmap='YlGnBu')
         plt.xlabel("CVE ID", fontsize=10)
         plt.ylabel("Languages", fontsize=10)
-        plt.savefig(f'{args.result_dir}/test_cve_language_heatmap.svg')
+        plt.savefig(f'{args.result_dir}/{args.train_mode}_test_cve_language_heatmap.svg')
 
         
 
     def _plot_feature_distribution(self, args, train_data, test_data):
-        """绘制特征空间分布图"""
-        plt.figure(figsize=(8, 6))
+        """绘制特征空间分布图（2D和3D）"""
+        # 合并语言标签并创建颜色映射
+        all_languages = np.concatenate([train_data['languages'], test_data['languages']])
+        unique_langs = np.unique(all_languages)
+        colors = plt.cm.tab20(np.linspace(0, 1, len(unique_langs)))  # 使用tab20色系
+        lang_color_map = {lang: colors[i] for i, lang in enumerate(unique_langs)}
+
+        # 2D绘图
+        plt.figure(figsize=(10, 8))
+        ax = plt.gca()
         
         # PCA降维
         pca = PCA(n_components=2)
         combined = np.vstack([train_data['embeddings'], test_data['embeddings']])
         pca.fit(combined)
         
-        # 绘制分布
-        ax = plt.gca()
-        train_points = pca.transform(train_data['embeddings'])
-        test_points = pca.transform(test_data['embeddings'])
-        
-        # 使用不同标记和透明度
-        scatter1 = ax.scatter(
-            train_points[:, 0], train_points[:, 1], 
-            label='Train', alpha=0.6, s=40, edgecolor='w', linewidth=0.5,
-            marker='o', c='#1f77b4'
-        )
-        scatter2 = ax.scatter(
-            test_points[:, 0], test_points[:, 1], 
-            label='Test', alpha=0.6, s=40, edgecolor='w', linewidth=0.5,
-            marker='^', c='#ff7f0e'
-        )
-        
-        # 样式调整
-        ax.set_title('Feature Space Distribution', pad=15, fontsize=14)
+        # 绘制训练集和测试集
+        for lang in unique_langs:
+            # 训练数据
+            train_mask = np.array([lang == languages for languages in train_data['languages']])
+            if train_mask.any():
+                points = pca.transform(train_data['embeddings'][train_mask])
+                ax.scatter(points[:, 0], points[:, 1], 
+                        color=lang_color_map[lang], marker='o', 
+                        alpha=0.7, s=40, edgecolor='w', linewidth=0.5,
+                        label=f'Train {lang}')
+            
+            # 测试数据
+            test_mask = np.array([lang == languages for languages in test_data['languages']])
+            if test_mask.any():
+                points = pca.transform(test_data['embeddings'][test_mask])
+                ax.scatter(points[:, 0], points[:, 1], 
+                        color=lang_color_map[lang], marker='^', 
+                        alpha=0.7, s=40, edgecolor='w', linewidth=0.5,
+                        label=f'Test {lang}')
+
+        # 图例和标签
+        ax.set_title('2D Feature Space Distribution', pad=15, fontsize=14)
         ax.set_xlabel('Principal Component 1', labelpad=10)
         ax.set_ylabel('Principal Component 2', labelpad=10)
-        ax.legend(frameon=True, loc='upper right')
         
-        # 添加色阶说明（可选）
-        plt.colorbar(scatter1, label='Density', shrink=0.8)
+        # 创建分块图例
+        handles, labels = ax.get_legend_handles_labels()
+        unique_labels = dict(zip(labels, handles))
+        ax.legend(unique_labels.values(), unique_labels.keys(), 
+                loc='upper left', bbox_to_anchor=(1, 1))
         
-        plt.savefig(f'{args.result_dir}/feature_distribution.svg')
+        plt.savefig(f'{args.result_dir}/{args.train_mode}_feature_2d.svg', bbox_inches='tight')
+        plt.close()
+
+        # 3D绘图
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # 3D PCA降维
+        pca_3d = PCA(n_components=3)
+        pca_3d.fit(combined)
+        
+        # 绘制三维散点
+        for lang in unique_langs:
+            # 训练数据
+            train_mask = np.array([lang == languages for languages in train_data['languages']])
+            if train_mask.any():
+                points = pca_3d.transform(train_data['embeddings'][train_mask])
+                ax.scatter(points[:, 0], points[:, 1], points[:, 2],
+                        color=lang_color_map[lang], marker='o',
+                        alpha=0.7, s=40, edgecolor='w', linewidth=0.5)
+            
+            # 测试数据
+            test_mask = np.array([lang == languages for languages in test_data['languages']])
+            if test_mask.any():
+                points = pca_3d.transform(test_data['embeddings'][test_mask])
+                ax.scatter(points[:, 0], points[:, 1], points[:, 2],
+                        color=lang_color_map[lang], marker='^',
+                        alpha=0.7, s=40, edgecolor='w', linewidth=0.5)
+
+        # 3D图设置
+        ax.set_title('3D Feature Space Distribution', pad=15, fontsize=14)
+        ax.set_xlabel('PC1', labelpad=10)
+        ax.set_ylabel('PC2', labelpad=10)
+        ax.set_zlabel('PC3', labelpad=10)
+        
+        # 创建颜色图例
+        legend_elements = [plt.Line2D([0], [0], marker='o', color='w', label=lang,
+                                    markerfacecolor=lang_color_map[lang], markersize=8)
+                        for lang in unique_langs]
+        ax.legend(handles=legend_elements, loc='upper left', 
+                bbox_to_anchor=(1.1, 1), title="Languages")
+
+        plt.savefig(f'{args.result_dir}/{args.train_mode}_feature_3d.svg', bbox_inches='tight')
         plt.close()
 
     def _prepare_data(self, X, y):
@@ -219,24 +322,31 @@ class ClassifierTrainer:
         auc = roc_auc_score(y_true, probas)
         
         # 计算假阳率
-        tn, fp, _, _ = confusion_matrix(y_true, y_pred).ravel()
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
         fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+        fnr = fn / (fn + tp) if (fn + tp) > 0 else 0.0
         
         return {
             'acc': round(acc, 4),
             'f1': round(f1, 4),
             'auc': round(auc, 4),
-            'fpr': round(fpr, 4)
+            'fpr': round(fpr, 4),
+            'fnr': round(fnr, 4)
         }
     
-    def test(self, args, model, X_test, y_test, model_type, indexes=None):
-        """带索引记录的测试接口"""
+    import os
+
+    def test(self, args, model, test_data, model_type, indexes=None):
+        X_test = test_data["embeddings"]
+        y_test = test_data["labels"]
+        functions = test_data["funcs"]
+
         assert model_type in ['mlp', 'svm', 'rf', 'lr', 'xgb'], "Invalid model type"
-        
+
         # 参数检查
-        if indexes is None :
+        if indexes is None:
             raise ValueError("indexes must be provided")
-        
+
         # 获取对应模型的标准化器
         scaler = self.scalers.get(model_type)
         if scaler is None:
@@ -251,38 +361,52 @@ class ClassifierTrainer:
             with torch.no_grad():
                 model.eval()
                 logits = model(X_test_tensor)
-                probas = torch.sigmoid(logits).cpu().numpy()
+                probas = torch.sigmoid(logits).cpu().numpy().flatten()
                 preds = (probas > 0.5).astype(int)
         else:
             if model_type == 'svm':
                 probas = model.decision_function(X_test_scaled)
+                probas = 1 / (1 + np.exp(-probas))  # SVM 的 decision_function 转换为概率
             else:
                 probas = model.predict_proba(X_test_scaled)[:, 1]
             preds = model.predict(X_test_scaled)
 
-        # 构建结果DataFrame
-        results_df = pd.DataFrame({
-            'idx': indexes,          # 新增索引记录
-            'true_label': y_test,    # 真实标签
-            'pred_label': preds,     # 预测标签
-            'confidence': probas     # 预测置信度
-        })
-        
-        # 筛选典型案例（按置信度排序）
-        best_cases = results_df[results_df.true_label == results_df.pred_label
-                               ].nlargest(5, 'confidence')
-        worst_cases = results_df[results_df.true_label != results_df.pred_label
-                                ].nlargest(5, 'confidence')
+        # 计算置信度
+        confidence = np.where(preds == 1, probas, 1 - probas)
 
-        # 保存案例（包含索引和CVE ID）
-        best_cases.to_csv(f'{args.result_dir}/best_cases_{model_type}.csv', 
-                         index=False, columns=['idx', 'true_label', 'confidence'])
-        worst_cases.to_csv(f'{args.result_dir}/worst_cases_{model_type}.csv', 
-                          index=False, columns=['idx', 'true_label', 'confidence'])
-        
+        # 构建结果 DataFrame
+        results_df = pd.DataFrame({
+            'idx': indexes,
+            'true_label': y_test,
+            'pred_label': preds,
+            'confidence': confidence,
+            'function': functions
+        })
+
+        # 选择最佳案例和最差案例
+        best_cases = results_df[results_df.true_label == results_df.pred_label].nlargest(5, 'confidence')
+        worst_cases = results_df[results_df.true_label != results_df.pred_label].nlargest(5, 'confidence')
+
+        # 创建临时文件夹（如果不存在）
+        os.makedirs(args.tmp_folder, exist_ok=True)
+
+        # 保存 C# 代码函数到文件
+        def save_csharp_functions(cases, prefix):
+            for idx, row in cases.iterrows():
+                # 生成文件名（例如：best_case_123.cs）
+                filename = f"{prefix}_case_{row['idx']}.cs"
+                filepath = os.path.join(args.tmp_folder, filename)
+                # 写入 C# 代码
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(row['function'])
+
+        # 保存最佳和最差案例
+        save_csharp_functions(best_cases, "best")
+        save_csharp_functions(worst_cases, "worst")
+
         return self._calculate_metrics(y_test, preds, probas)
 
-    def train_mlp(self, X, y, input_dim):
+    def train_mlp(self, X, y, input_dim, args):
         """训练神经网络分类器"""
         class MLP(nn.Module):
             def __init__(self, input_dim, hidden_dim=256):
@@ -334,10 +458,6 @@ class ClassifierTrainer:
                 # 更新学习率
                 scheduler.step(metrics['auc'])
 
-                if metrics['auc'] > best_metrics['auc']:
-                    best_metrics = metrics
-                    torch.save(model.state_dict(), 'best_mlp.pth')
-
                 print(f"Epoch {epoch+1} | Loss: {loss.item():.4f} | "
                       f"Acc: {metrics['acc']} | F1: {metrics['f1']} | "
                       f"AUC: {metrics['auc']} | FPR: {metrics['fpr']}")
@@ -345,7 +465,7 @@ class ClassifierTrainer:
                 if metrics['auc'] > best_metrics['auc']:
                     best_metrics = metrics
                     epochs_no_improve = 0
-                    torch.save(model.state_dict(), 'best_mlp.pth')
+                    torch.save(model.state_dict(), f'{args.train_mode}_best_mlp.pth')
                 else:
                     epochs_no_improve += 1
                     if epochs_no_improve >= early_stop_patience:
@@ -354,7 +474,7 @@ class ClassifierTrainer:
 
         print(f"Best AUC Metrics : Acc: {best_metrics['acc']} | F1: {best_metrics['f1']} | "
               f"AUC: {best_metrics['auc']} | FPR: {best_metrics['fpr']}")
-        model.load_state_dict(torch.load('best_mlp.pth'))
+        model.load_state_dict(torch.load(f'{args.train_mode}_best_mlp.pth'))
 
         with torch.no_grad():
             probas_val = torch.sigmoid(model(X_val)).cpu().numpy()

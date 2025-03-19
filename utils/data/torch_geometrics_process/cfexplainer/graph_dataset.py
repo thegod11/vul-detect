@@ -70,6 +70,7 @@ class VulGraphDataset(Dataset):
         code_graph.__setitem__("_LINE", torch.Tensor(n["id"].astype(int).to_numpy()))
         code_graph.__setitem__("_SAMPLE", torch.Tensor([_id] * len(n)))
         code_graph.__setitem__("_GTYPE", edge_type)
+        code_graph.__setitem__("_NCODE", n["subseq"].tolist())
         data_list.append(code_graph)
         return code_graph
     
@@ -112,10 +113,10 @@ class VulGraphDataset(Dataset):
         tqdm.pandas()
         self.df["torch_geometrics_data"] = self.df.progress_apply(lambda row: [self.data_build(row, data_list, e) for e in ["ast", "cfgcdg", "pdg"]], axis=1)
 
-        print(f'Saving in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe_all.pkl")} .....')
-        self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset_name}_dataframe_all.pkl"))
+        print(f'Saving in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe_C#_ncode.pkl")} .....')
+        self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset_name}_dataframe_C#_ncode.pkl"))
         torch.save(data_list, self.processed_paths[0])
-        print(f'Saved in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe_all.pkl")} !!!')
+        print(f'Saved in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe_C#_ncode.pkl")} !!!')
         
     def len(self) -> int:
         return len(self.data_list)
@@ -143,6 +144,17 @@ class VulGraphDataset(Dataset):
 
         lan = "c" if programming_language == "C" else "java" if programming_language == "Java" else "cpp" if programming_language == "C++" else "cs"
         try:
+            filepath = VulGraphDataset.itempath(_id, lan)
+            _, edges = joern.get_node_edges(filepath, edge_type="cfgcdg")
+            valid_series = edges.apply(
+                lambda row: pd.notnull(pd.to_numeric(row['line_in'], errors='coerce')) and
+                            pd.notnull(pd.to_numeric(row['line_out'], errors='coerce')),
+                axis=1
+            )
+            
+            if not valid_series.any():
+                return False
+
             with open(str(VulGraphDataset.itempath(_id, lan)) + ".nodes.json", "r") as f:
                 nodes = json.load(f)
                 lineNums = set()
@@ -164,6 +176,7 @@ class VulGraphDataset(Dataset):
                 if "CFG" not in edge_set and "CDG" not in edge_set:
                     return False
                 return True
+                
         except Exception as E:
             print(E, str(VulGraphDataset.itempath(_id, lan)))
             return False

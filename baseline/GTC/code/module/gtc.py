@@ -103,6 +103,7 @@ class GTC(nn.Module):
         nn.init.xavier_normal_(self.att_embeddings_proj.weight, gain=1.414)
 
         self.sematic_attention = Attention(hidden_dim=self.hidden_dim, attn_drop=t_attention_dropout_rate)
+        self.type_attention = TypeAwareAttention(hidden_dim=self.hidden_dim, graph_types=rel_names, attn_drop=t_attention_dropout_rate)
         # graph schema view encoder
         self.gnn_branch = GNN_encoder(in_feats=self.hidden_dim, hid_feats=self.hidden_dim * 2,
                                       out_feats=self.hidden_dim,
@@ -121,7 +122,9 @@ class GTC(nn.Module):
         # 处理 Transformer 分支
         z_mp_list = [self.att_embeddings_proj(self.transformer_list[i](multi_hop_features[i]))
                      for i in range(len(multi_hop_features))]
-        z_transformer = self.sematic_attention(z_mp_list)
+        # z_transformer = self.sematic_attention(z_mp_list)
+        z_transformer, alpha = self.type_attention(z_mp_list)
+        # z_transformer = torch.mean(torch.stack(z_mp_list), dim=0) # ablation
 
         # 处理 GNN 分支
         z_gnn = self.gnn_branch(g=g, feat=h_all, mini_batch_flag=mini_batch_flag)
@@ -159,6 +162,63 @@ class GTC(nn.Module):
         z_mp = self.sematic_attention(z_mp_list)
         return z_mp.detach()
 
+class TypeAwareAttention(nn.Module):
+    def __init__(self, hidden_dim, graph_types, attn_drop=0.3):
+        """
+        hidden_dim: 隐藏层维度
+        graph_types: 图类型列表，例如 ['cfg', 'ast', 'pdg']
+        attn_drop: 注意力dropout率
+        """
+        super(TypeAwareAttention, self).__init__()
+        self.graph_types = graph_types
+        self.num_types = len(graph_types)
+        
+        # 分类型注意力参数
+        self.att_params = nn.ParameterDict({
+            t: nn.Parameter(torch.empty(1, hidden_dim)) 
+            for t in graph_types
+        })
+        
+        # 共享的变换层
+        self.fc = nn.Linear(hidden_dim, hidden_dim)
+        self.leaky_relu = nn.LeakyReLU(0.2)
+        
+        # 初始化参数
+        for param in self.att_params.values():
+            nn.init.xavier_normal_(param.data, gain=1.414)
+        nn.init.xavier_normal_(self.fc.weight, gain=1.414)
+        
+        self.dropout = nn.Dropout(attn_drop) if attn_drop else lambda x: x
+
+    def forward(self, embeds):
+        """
+        embeds_dict: 各图结构的嵌入tensor
+        """
+        
+        # 计算各图结构的注意力权重
+        attention_scores = []
+        for i, graph_type in enumerate(self.graph_types):
+            # 类型相关变换
+            trans_embed = self.fc(embeds[i])  # [batch_size, hidden_dim]
+            
+            # 计算注意力得分
+            att_score = torch.matmul(
+                self.dropout(self.att_params[graph_type]), 
+                trans_embed.t()
+            )  # [1, batch_size]
+            attention_scores.append(att_score)
+        
+        # 归一化注意力权重
+        attention_scores = torch.cat(attention_scores, dim=0)  # [num_types, batch_size]
+        alpha = F.softmax(attention_scores, dim=0)  # 按图类型维度归一化
+        
+        # 加权聚合
+        weighted_embeds = 0
+        for i, graph_type in enumerate(self.graph_types):
+            weighted_embeds += alpha[i].unsqueeze(1) * embeds[i]
+        
+        self.alpha = alpha.detach().cpu().numpy()
+        return weighted_embeds, alpha.detach()
 
 class Attention(nn.Module):
     def __init__(self, hidden_dim, attn_drop):
@@ -184,6 +244,7 @@ class Attention(nn.Module):
             beta.append(attn_curr.matmul(sp.t()))
         beta = torch.cat(beta, dim=-1).view(-1)
         beta = self.softmax(beta)
+        self.beta_values = beta.detach().cpu().numpy()
         # print("mp ", beta.data.cpu().numpy())  # semantic attention
         z_mp = 0
         for i in range(len(embeds)):

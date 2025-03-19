@@ -34,6 +34,8 @@ from dgl.data import DGLDataset
 from vulDGLDataset import vulDGLDataset, vulDGLDataset_ds, BalancedBatchSampler
 from sklearn.metrics import confusion_matrix
 from classifier import ClassifierTrainer, extract_embeddings
+import pandas as pd
+import pickle
 
 args = set_params()
 if torch.cuda.is_available() and args.device > -1:
@@ -91,7 +93,7 @@ def make(config, dgl_graph, feats_dim_list, P, h_dict, category, all_node_idx,
 
     return model, train_dataloader_4GTC, optimizer
 
-def make4GraphClassification(config, dataset):
+def make4GraphClassification(config, dataset, mode="train"):
     """
     the fuction of building the model, train_loader and optimizer
     :param config:
@@ -128,11 +130,13 @@ def make4GraphClassification(config, dataset):
     num_examples = len(dataset)
     num_train = int(num_examples * 0.8)
 
-    # train_sampler = SubsetRandomSampler(torch.arange(num_train))
-    train_sampler = BalancedBatchSampler(dataset, batch_size=config.batch_size)
-    train_dataloader = GraphDataLoader(dataset, batch_sampler=train_sampler, drop_last=False, num_workers=8)
+    if mode == "train":
+        train_sampler = BalancedBatchSampler(dataset, batch_size=config.batch_size)
+        dataloader = GraphDataLoader(dataset, batch_sampler=train_sampler, drop_last=False, num_workers=12)
+    elif mode == "test":
+        dataloader = GraphDataLoader(dataset, batch_size=1, shuffle=False, drop_last=False, num_workers=12)
 
-    return model, train_dataloader, optimizer
+    return model, dataloader, optimizer
 
 def train_flow(model, train_loader, optimizer, config, category, pos, own_str, exp=0):
     cnt_wait = 0
@@ -276,6 +280,10 @@ def test_flow_cvefixes(model, test_loader, config, category, exp=0):
     return metrics
 
 def train_flow_devign(model, train_loader, optimizer, config, category, own_str, exp=0):
+    if os.path.exists('../data/checkpoint/GTC_' + own_str + '.pkl'):
+        model.load_state_dict(torch.load('../data/checkpoint/GTC_' + own_str + '.pkl'))
+        print("load pretrained model from ../data/checkpoint/GTC_" + own_str + '.pkl !!!')
+
     cnt_wait = 0
     best = 1e9
     best_t = 0
@@ -309,7 +317,7 @@ def train_flow_devign(model, train_loader, optimizer, config, category, own_str,
             # [num_meta-paths,num_nodes,num_hops,feature_dim}
             multi_hop_features = graphs.ndata['multi_hop_feature'].permute(1, 0, 2, 3)
 
-            loss = model(g=graphs, feats=input_fea4GNN, multi_hop_features=multi_hop_features, pos=pos_batch,languages=languages, cve_ids=cve_ids, mini_batch_flag=False)
+            loss = model(g=graphs, feats=input_fea4GNN, multi_hop_features=multi_hop_features, pos=pos_batch,languages=None, cve_ids=cve_ids, mini_batch_flag=False)
             loss_epoch = loss_epoch + loss
             optimizer.zero_grad()
             loss.backward()
@@ -327,7 +335,7 @@ def train_flow_devign(model, train_loader, optimizer, config, category, own_str,
             os.makedirs('../data/checkpoint', exist_ok=True)
             torch.save(model.state_dict(), '../data/checkpoint/GTC_' + own_str + f'.pkl')
             print("save model in ../data/checkpoint/GTC_" + own_str + f'.pkl !!!')
-        elif epoch % 300 == 0:
+        elif epoch % 100 == 0:
             os.makedirs('../data/other-checkpoints', exist_ok=True)
             torch.save(model.state_dict(), '../data/other-checkpoints/GTC_' + own_str + f'_epoch_{epoch}.pkl')
             print("save model in ../data/other-checkpoints/GTC_" + own_str + f'_epoch_{epoch}.pkl !!!')
@@ -463,7 +471,7 @@ def model_train_CVEfixes(args):
             device = torch.device("cpu")
 
         # name of intermediate document
-        own_str = args.dataset + '_graph_contrast_exp_' + str(exp)
+        own_str = args.dataset + f'_{args.train_mode}_exp_' + str(exp)
 
         # random seed
         seed = args.seed
@@ -475,7 +483,7 @@ def model_train_CVEfixes(args):
         dataset = vulDGLDataset_ds("CVEfixes", raw_dataframe_path=args.dataframe_path, save_dir=args.save_dir)
         # build the model, train_loader and optimizer
         model, train_loader, optimizer = make4GraphClassification(args, dataset)
-        print(model)
+        # print(model)
 
         if torch.cuda.is_available() and args.device > -1:
             print('Using CUDA~')
@@ -575,7 +583,7 @@ def main_train_classifier(args):
     
     # 构建模型结构（需与预训练模型完全一致）
     model, train_loader, _ = make4GraphClassification(args, dataset)
-    _, test_loader, _ = make4GraphClassification(args, test_dataset)
+    _, test_loader, _ = make4GraphClassification(args, test_dataset, mode="test")
     model = model.to(device)
 
     # 加载预训练权重
@@ -593,37 +601,40 @@ def main_train_classifier(args):
     train_data = extract_embeddings(model, train_loader, args, dataset.category)
     print("Extracting test dataset 's graph embeddings...")
     test_data = extract_embeddings(model, test_loader, args, dataset.category)
-    
+
+    with open(f"{args.result_dir}/test_{args.train_mode}_betas.pkl", "wb") as f:
+        pickle.dump(test_data, f)
+
     # 训练分类器
-    X_train, y_train, X_test, y_test, idxes = train_data["embeddings"], train_data["labels"], test_data["embeddings"], test_data["labels"], test_data["indexes"]
+    X_train, y_train, X_test, y_test, idxes, test_funcs = train_data["embeddings"], train_data["labels"], test_data["embeddings"], test_data["labels"], test_data["indexes"], test_data["funcs"]
     print(f"Training classifier on {X_train.shape[0]} samples...")
     trainer = ClassifierTrainer(device=device)
     trainer._plot_distribution(args, train_data, test_data)
     
     # 训练所有分类器
     print("\nTraining MLP:")
-    mlp_model = trainer.train_mlp(X_train, y_train, X_train.shape[1])
+    mlp_model = trainer.train_mlp(X_train, y_train, X_train.shape[1], args)
     
     print("\nTesting MLP:")
-    mlp_metrics = trainer.test(args, mlp_model, X_test, y_test, 'mlp', idxes)
+    mlp_metrics = trainer.test(args, mlp_model, test_data, 'mlp', idxes)
     print(f"MLP测试结果: {mlp_metrics}")
 
     print("\nTraining SVM:")
     svm_model = trainer.train_sklearn_model(X_train, y_train, 'svm')
     print("\nTesting SVM:")
-    svm_metrics = trainer.test(args, svm_model, X_test, y_test, 'svm', idxes)
+    svm_metrics = trainer.test(args, svm_model, test_data, 'svm', idxes)
     print(f"SVM测试结果: {svm_metrics}")
 
     print("\nTraining Random Forest:")
     rf_model = trainer.train_sklearn_model(X_train, y_train, 'rf')
     print("\nTesting Random Forest:")
-    rf_metrics = trainer.test(args, rf_model, X_test, y_test, 'rf', idxes)
+    rf_metrics = trainer.test(args, rf_model, test_data, 'rf', idxes)
     print(f"RF测试结果: {rf_metrics}")
 
     print("\nTraining XGBoost:")
     xgb_model = trainer.train_sklearn_model(X_train, y_train, 'xgb')
     print("\nTesting XGBoost:")
-    xgb_metrics = trainer.test(args, xgb_model, X_test, y_test, 'xgb', idxes)
+    xgb_metrics = trainer.test(args, xgb_model, test_data, 'xgb', idxes)
     print(f"XGB测试结果: {xgb_metrics}")
 
     return {
