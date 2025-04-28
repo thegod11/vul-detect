@@ -19,6 +19,25 @@ Training
 ```bash
 pipreqs .  --ignore ./tmp
 ```
+
+### Conda Environment Build
+```bash
+conda create -n vul-detect python=3.9
+
+pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cu118
+pip install pandas cpgclientlib captum graphviz matplotlib scikit_learn scipy seaborn torch_geometric tqdm transformers unidiff rdkit
+wget https://data.pyg.org/whl/torch-2.1.0%2Bcu118/torch_scatter-2.1.2%2Bpt21cu118-cp39-cp39-linux_x86_64.whl
+pip install torch_scatter-2.1.2+pt21cu118-cp39-cp39-linux_x86_64.whl
+wget https://data.pyg.org/whl/torch-2.1.0%2Bcu118/torch_sparse-0.6.18%2Bpt21cu118-cp39-cp39-linux_x86_64.whl
+pip install torch_sparse-0.6.18+pt21cu118-cp39-cp39-linux_x86_64.whl
+
+pip install  dgl -f https://data.dgl.ai/wheels/torch-2.1/cu118/repo.html
+conda install ipykernel
+python -m ipykernel install --user --name vul-detect --display-name vul-detect
+pip install ipywidgets
+```
+
+
 ### Dataset preprocess
 - align to devign dataset columns: project、commit_id、target、func
    - ./vul-detect/data/raw/CVEfixes/convert.ipynb

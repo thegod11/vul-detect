@@ -17,6 +17,7 @@ from models.LMGNN import BertGGCN
 from baseline.training_val_test import train, validate, test, save_checkpoint, load_checkpoint
 import os
 import sys
+# sys.path.append('/root/autodl-tmp/vul-detect')
 from sklearn.utils import shuffle
 from transformers import (BertConfig, BertForMaskedLM, BertTokenizer,
                           GPT2Config, GPT2LMHeadModel, GPT2Tokenizer,
@@ -25,6 +26,7 @@ from transformers import (BertConfig, BertForMaskedLM, BertTokenizer,
                           DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer,
                           T5Config, T5ForConditionalGeneration, T5Tokenizer)
 from utils.data.torch_geometrics_process.cfexplainer.graph_dataset import VulGraphDataset
+from my_email import EmailSender
 '''
 Load the configuration parameters from the configs.json file
 '''
@@ -308,6 +310,8 @@ if __name__ == '__main__':
     print("Run with args:", args)
     print("Using device:", DEVICE)
     
+    mailer = EmailSender()
+    mailer.send("开始提取CPG以及图节点嵌入!!!!!!!!!")
     '''
     Example of running the script:
     python3 run.py -cpg -embed -dataloaders save -train -test -learning_rate 0.0001 -batch_size 32 -epochs 10 -weight_decay 0.00001 -patience 5
@@ -329,7 +333,12 @@ if __name__ == '__main__':
         # os.system("/usr/bin/shutdown")
     ###
     if args.gtc:
+        all_cnt = len(filtered_dataset)
+
         Geometrics_generator(filtered_dataset)
+
+        processed_cnt = sum(1 for f in glob('/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/code/*') if os.path.isfile(f) and not (f.endswith('.nodes.json') or f.endswith('.edges.json')) and os.path.isfile(f'{f}.nodes.json') and os.path.isfile(f'{f}.edges.json'))
+        mailer.send(f"总共有 {all_cnt} 条数据, 已经提取完成edges与nodes的数据有 {processed_cnt} 条 !!!!!!!!!!!")
 
         MODEL_CLASSES = {
         'gpt2': (GPT2Config, GPT2LMHeadModel, GPT2Tokenizer),
