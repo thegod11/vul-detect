@@ -58,6 +58,103 @@ class GraphLevelContrast(nn.Module):
 
         return cve_ids_mask & (lang_mask if same_lang else ~lang_mask)
 
+class CVEContrastiveLoss(nn.Module):
+    def __init__(self, hidden_dim, tau=0.8, alpha=0):
+        super().__init__()
+        self.tau = tau
+        self.eps = 1e-8
+        self.proj = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+
+    def forward(self, graph_emb, labels, lan):
+        """
+        Args:
+            graph_emb: 图嵌入向量 [batch_size, hidden_dim]
+            labels: CVE ID列表 [batch_size]
+        Returns:
+            contrastive_loss: 对比损失值
+        """
+        # 构造CVE ID到索引的映射
+        unique_cves = list(set(labels))
+        cve_id_map = {cve: idx for idx, cve in enumerate(unique_cves)}
+        
+        # 转换为索引张量
+        cve_indices = torch.tensor([cve_id_map[cve] for cve in labels], 
+                                 dtype=torch.long, 
+                                 device=graph_emb.device)
+
+        # 投影并归一化
+        z = F.normalize(self.proj(graph_emb), dim=1)
+        
+        # 计算相似度矩阵
+        sim_matrix = torch.exp(torch.mm(z, z.t()) / self.tau)
+        
+        # 构建正负样本掩码
+        pos_mask = (cve_indices.unsqueeze(1) == cve_indices.unsqueeze(0))  # 正样本对
+        neg_mask = ~pos_mask  # 负样本对
+        
+        # 计算正负样本相似度
+        pos_sim = (sim_matrix * pos_mask).sum(dim=1)  # 每个样本的正对相似度和
+        neg_sim = (sim_matrix * neg_mask).sum(dim=1)  # 每个样本的负对相似度和
+        
+        # 数值稳定性处理
+        pos_sim = torch.clamp(pos_sim, min=self.eps)
+        neg_sim = torch.clamp(neg_sim, min=self.eps)
+        
+        # 计算对比损失
+        loss = -torch.log(pos_sim / (pos_sim + neg_sim)).mean()
+        
+        return loss
+    
+class GraphLevelContrast_new(nn.Module):
+    def __init__(self, hidden_dim, tau=0.8, alpha=0.7):
+        super().__init__()
+        self.tau = tau
+        self.alpha = alpha
+        self.eps = 1e-8
+        self.proj = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+        
+    def forward(self, graph_emb, labels, languages):
+
+        # 构造唯一值到索引的映射
+        cve_id_map = {cve: idx for idx, cve in enumerate(set(labels))}
+        lang_map = {lang: idx for idx, lang in enumerate(set(languages))}
+
+        # 转换为索引
+        cve_ids_tensor = torch.tensor([cve_id_map[cve] for cve in labels], dtype=torch.long)
+        languages_tensor = torch.tensor([lang_map[lang] for lang in languages], dtype=torch.long)
+
+        z = F.normalize(self.proj(graph_emb), dim=1)
+        sim = torch.exp(torch.mm(z, z.t()) / self.tau).cpu()
+        label_mask = cve_ids_tensor.unsqueeze(1) == cve_ids_tensor.unsqueeze(0)
+        lang_mask = languages_tensor.unsqueeze(1) == languages_tensor.unsqueeze(0)
+        intra_pos_mask = label_mask & lang_mask
+        cross_pos_mask = label_mask & ~lang_mask
+        neg_mask = cve_ids_tensor.unsqueeze(1) != cve_ids_tensor.unsqueeze(0)
+
+        intra_pos = (sim * intra_pos_mask).sum(dim=1)
+        cross_pos = (sim * cross_pos_mask).sum(dim=1)
+        neg = (sim * neg_mask).sum(dim=1)
+
+        intra_pos = torch.clamp(intra_pos, min=self.eps)
+        cross_pos = torch.clamp(cross_pos, min=self.eps)
+        denominator = torch.clamp(neg, min=self.eps)
+        # intra_denominator = torch.clamp(intra_pos + neg, min=self.eps)
+        # cross_denominator = torch.clamp(cross_pos + neg, min=self.eps)
+
+        intra_loss = -torch.log(intra_pos / denominator).mean()
+        cross_loss = -torch.log(cross_pos / denominator).mean()
+
+        return (1-self.alpha)*intra_loss + self.alpha*cross_loss
+    
+
 class Contrast(nn.Module):
     def __init__(self, hidden_dim, tau, lam):
         super(Contrast, self).__init__()

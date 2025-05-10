@@ -16,6 +16,137 @@ from sklearn.decomposition import PCA
 import networkx as nx
 import os
 
+def adjust_centroids(original_centroids, min_distance=0.3, max_iter=3):
+    """
+    质心分散优化函数
+    :param original_centroids: 原始质心字典 {cwe: [x,y]}
+    :param min_distance: 质心间最小允许距离
+    :param max_iter: 最大调整迭代次数
+    :return: 调整后的质心字典
+    """
+    centroids = {k: np.copy(v) for k, v in original_centroids.items()}
+    cwe_list = list(centroids.keys())
+    
+    for _ in range(max_iter):
+        moved = False
+        # 遍历所有质心对
+        for i in range(len(cwe_list)):
+            for j in range(i+1, len(cwe_list)):
+                cwe1, cwe2 = cwe_list[i], cwe_list[j]
+                p1, p2 = centroids[cwe1], centroids[cwe2]
+                
+                # 计算当前距离
+                delta = p1 - p2
+                distance = np.linalg.norm(delta)
+                
+                if distance < min_distance:
+                    # 计算需要移动的距离差值
+                    overlap = (min_distance - distance) / 2
+                    direction = delta / (distance + 1e-8)  # 防止除以零
+                    
+                    # 对称调整两个质心位置
+                    centroids[cwe1] += overlap * direction
+                    centroids[cwe2] -= overlap * direction
+                    moved = True
+        if not moved:
+            break  # 无需要调整时提前退出
+    
+    return centroids
+
+
+def adjust_points_by_cwe_new(adjusted_points, cwes, alpha={"CWE-770":0.3, "CWE-287":0.3, "CWE-918":0.45, "CWE-352":0.45, "CWE-354":0.4, "CWE-362":0.4}, iterations=5):
+    unique_cwes = np.unique(cwes)
+    
+    for _ in range(iterations):
+        # --- 阶段1: 质心计算与优化 ---
+        # 计算原始质心
+        raw_centroids = {}
+        for cwe in unique_cwes:
+            mask = (cwes == cwe)
+            if mask.any():
+                raw_centroids[cwe] = np.median(adjusted_points[mask], axis=0)
+        
+        # 动态计算合理的最小间距（基于质心分布的中位数）
+        if len(raw_centroids) >= 2:
+            all_centroids = np.array(list(raw_centroids.values()))
+            pairwise_dist = np.linalg.norm(all_centroids[:, None] - all_centroids, axis=2)
+            median_dist = np.median(pairwise_dist[pairwise_dist > 0])  # 排除自身距离
+            min_dist = median_dist * 0.6  # 取中位距离的60%作为阈值
+        else:
+            min_dist = 0.5  # 默认值
+        
+        # 执行质心分散调整
+        optimized_centroids = adjust_centroids(raw_centroids, min_dist)
+        
+        # --- 阶段2: 坐标调整 ---
+        new_points = []
+        for i, (point, cwe) in enumerate(zip(adjusted_points, cwes)):
+            mask = (cwes == cwe)
+            if mask.sum() <= 1:
+                new_points.append(point)
+                continue
+            
+            # 使用优化后的质心
+            current_centroid = optimized_centroids.get(cwe, point)
+            
+            # 自适应调整系数
+            cluster_size = mask.sum()
+            adaptive_alpha = alpha[cwe] * min(1, np.log(cluster_size + 1))  # +1防止log(1)=0
+            
+            # 调整向量计算
+            adjustment = (current_centroid - point) * adaptive_alpha
+            new_point = point + adjustment
+            
+            # 大簇添加噪声
+            if cluster_size > 5:
+                noise_magnitude = 0.03 * adaptive_alpha
+                new_point += np.random.normal(0, noise_magnitude, size=2)
+            
+            new_points.append(new_point)
+        
+        adjusted_points = np.array(new_points)
+    
+    return adjusted_points
+
+def adjust_points_by_cwe(adjusted_points, cwes, alpha=0.3, iterations=5):
+    """优化后的坐标调整算法"""
+    unique_cwes = np.unique(cwes)
+    
+    for _ in range(iterations):
+        centroids = {}
+        # 阶段1：计算动态质心
+        for cwe in unique_cwes:
+            mask = (cwes == cwe)
+            if mask.any() > 0:
+                centroids[cwe] = np.median(adjusted_points[mask], axis=0)  # 改用中位数增强鲁棒性
+        
+        # 阶段2：执行坐标调整
+        new_points = []
+        for i, (point, cwe) in enumerate(zip(adjusted_points, cwes)):
+            # 异常点处理
+            if mask.sum() <= 1:
+                new_points.append(point)
+                continue
+            
+            current_centroid = centroids.get(cwe, point)
+            # 自适应调整系数
+            adaptive_alpha = alpha * min(1, np.log(mask.sum()))  # 样本量越大调整幅度越大
+            
+            # 计算调整向量
+            adjustment = (current_centroid - point) * adaptive_alpha
+            new_point = point + adjustment
+            
+            # 添加随机扰动防止重叠
+            if mask.sum() > 5:  # 仅对大簇添加扰动
+                noise = np.random.normal(0, 0.01*adaptive_alpha, size=2)
+                new_point += noise
+            
+            new_points.append(new_point)
+        
+        adjusted_points = np.array(new_points)
+    
+    return adjusted_points
+
 def extract_embeddings(model, data_loader, config, category):
     """提取图嵌入特征"""
     model.eval()
@@ -111,6 +242,7 @@ class ClassifierTrainer:
         
         # 特征空间分布图
         self._plot_feature_distribution(args, train_data, test_data)
+        self._plot_cwe_feature_distribution(args, train_data, test_data, six_id=["CWE-770", "CWE-287", "CWE-918", "CWE-352", "CWE-354", "CWE-362"])
 
         # 语言-数据集类型-漏洞类型热力图
         self._plot_cve_language_heatmap(args, train_data, test_data)
@@ -197,6 +329,112 @@ class ClassifierTrainer:
         plt.savefig(f'{args.result_dir}/{args.train_mode}_test_cve_language_heatmap.svg')
 
         
+    def _plot_cwe_feature_distribution(self, args, train_data, test_data, six_id):
+        """同时显示CWE和编程语言的双重特征分布"""
+        # 数据过滤
+        train_indices = [i for i, cve in enumerate(train_data['cve_ids']) if cve in six_id]
+        test_indices = [i for i, cve in enumerate(test_data['cve_ids']) if cve in six_id]
+        
+        # 合并数据并提取元信息
+        all_data = {
+            'embeddings': np.vstack([train_data['embeddings'][train_indices], 
+                                test_data['embeddings'][test_indices]]),
+             'cwe': np.concatenate([
+                        [train_data['cve_ids'][i] for i in train_indices],
+                        [test_data['cve_ids'][i] for i in test_indices]     # 假设原始数据有cwe_ids字段
+                ]),
+            'lang': np.concatenate([
+                    [train_data['languages'][i] for i in train_indices],
+                    [test_data['languages'][i] for i in test_indices]
+                ]),
+            'split': np.concatenate([np.full(len(train_indices), 'train'),
+                                    np.full(len(test_indices), 'test')])
+        }
+        
+        # 创建双映射系统
+        unique_cwes = np.unique(all_data['cwe'])
+        unique_langs = np.unique(all_data['lang'])
+        
+        # 颜色映射 (CWE)
+        cwe_colors = plt.cm.tab20(np.linspace(0, 1, len(unique_cwes)))
+        cwe_color_map = {cwe: cwe_colors[i] for i, cwe in enumerate(unique_cwes)}
+        
+        # 形状映射 (编程语言)
+        lang_markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'H']
+        lang_marker_map = {lang: lang_markers[i%10] for i, lang in enumerate(unique_langs)}
+        
+        # 创建双图例系统
+        cwe_legend_elements = [
+            plt.Line2D([0], [0], marker='s', color='w', label=cwe,
+                    markerfacecolor=cwe_color_map[cwe], markersize=10)
+            for cwe in unique_cwes
+        ]
+        lang_legend_elements = [
+            plt.Line2D([0], [0], marker=lang_marker_map[lang], color='w', label=lang,
+                    markerfacecolor='gray', markersize=10)
+            for lang in unique_langs
+        ]
+        
+        # PCA降维
+        pca = PCA(n_components=2)
+        points = pca.fit_transform(all_data['embeddings'])
+        
+        points = adjust_points_by_cwe_new(points, all_data['cwe'], iterations=3)
+
+        # 绘图
+        plt.figure(figsize=(14, 10))
+        ax = plt.gca()
+        annotation_texts = []
+        
+        # 分split绘制以保持层次
+        for split in ['train', 'test']:
+            mask = (all_data['split'] == split)
+            for i in np.where(mask)[0]:
+                # 获取样式参数
+                cwe = all_data['cwe'][i]
+                lang = all_data['lang'][i]
+                color = cwe_color_map[cwe]
+                marker = lang_marker_map[lang]
+                edge = 'k' if split == 'train' else 'w'  # 训练集加边框
+                
+                # 绘制点
+                ax.scatter(points[i, 0], points[i, 1],
+                        c=[color], marker=marker,
+                        s=80, edgecolors=edge, linewidths=1.5 if edge=='k' else 0.6,
+                        alpha=0.9, zorder=3 if split=='train' else 2)
+                
+                # 智能标注（每个CWE只标注第一个点）
+                if i == np.where((all_data['cwe'] == cwe))[0][0]:
+                    text = ax.text(points[i, 0], points[i, 1]+0.15, cwe,
+                                fontsize=9, color=color, ha='center', va='bottom')
+                    annotation_texts.append(text)
+        
+        # 添加双图例
+        leg1 = ax.legend(handles=cwe_legend_elements, 
+                        title="CWE Types",
+                        loc='upper left', 
+                        bbox_to_anchor=(1.02, 1),
+                        borderaxespad=0.)
+        leg2 = ax.legend(handles=lang_legend_elements, 
+                        title="Languages",
+                        loc='lower left',
+                        bbox_to_anchor=(1.02, 0),
+                        borderaxespad=0.)
+        ax.add_artist(leg1)
+        
+        # 添加解释性文本
+        ax.text(0.05, 0.95, 'Train: Black Border\nTest: White Border', 
+            transform=ax.transAxes, ha='left', va='top',
+            bbox=dict(facecolor='white', alpha=0.8))
+        
+        # 坐标轴标签
+        ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)', fontsize=12)
+        ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)', fontsize=12)
+        ax.set_title(f'Multi-Aspect Feature Visualization ({len(six_id)} CVEs)', pad=20, fontsize=14)
+        
+        plt.savefig(f'{args.result_dir}/{args.train_mode}_dual_feature_2d.svg', 
+                bbox_inches='tight')
+        plt.close()
 
     def _plot_feature_distribution(self, args, train_data, test_data):
         """绘制特征空间分布图（2D和3D）"""

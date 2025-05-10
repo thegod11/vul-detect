@@ -241,10 +241,10 @@ def CVEfixes_params():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--load_from_pretrained', action="store_true")
     parser.add_argument('--task', type=str, default="train_classifer", help="optional: train or train_classifer")
-    parser.add_argument('--train_mode', type=str, default="graph_contrast_ncode", help="optional : graph_contrast or normal_gtc")
+    parser.add_argument('--train_mode', type=str, default="cve_constrast", help="optional : graph_contrast or normal_gtc")
     parser.add_argument('--tmp_folder', type=str, default="/root/autodl-tmp/vul-detect/tmp/train_tmp_floder", help="")
-    parser.add_argument('--pretrained_path', type=str, help="/root/autodl-tmp/vul-detect/baseline/GTC/data/checkpoint/GTC_CVEfixes_exp_9.pkl", default="/root/autodl-tmp/vul-detect/baseline/GTC/data/checkpoint/GTC_CVEfixes_graph_contrast_ncode_exp_0.pkl")
-    
+    parser.add_argument('--pretrained_path', type=str, help="/root/autodl-tmp/vul-detect/baseline/GTC/data/checkpoint/GTC_CVEfixes_graph_contrast_ncode_exp_0.pkl", default="/root/autodl-tmp/vul-detect/baseline/GTC/data/checkpoint/GTC_CVEfixes_cve_constrast_exp_0.pkl")
+
     parser.add_argument('--turn', type=int, default=0)
     parser.add_argument('--dataset', type=str, default="CVEfixes")
     parser.add_argument('--ratio', type=int, default=[20, 40, 60])
@@ -255,8 +255,8 @@ def CVEfixes_params():
     parser.add_argument('--gnn_branch_layer_num', type=int, default=4)
     parser.add_argument('--batch_size', type=int, default=256)
     
-    parser.add_argument('--test_dataframe_path', type=str, default="/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe_C#_ncode.pkl")
-    parser.add_argument('--dataframe_path', type=str, default="/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe_all_ncode.pkl")
+    parser.add_argument('--test_dataframe_path', type=str, default="/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe_c#_ncode_2.pkl")
+    parser.add_argument('--dataframe_path', type=str, default="/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/CVEfixes_dataframe_ncode_2.pkl")
     parser.add_argument('--test_data_save_dir', type=str, default="/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/dgl_hetgraph_data_c#_ncode.pt")
     parser.add_argument('--save_dir', type=str, default="/root/autodl-tmp/vul-detect/utils/data/torch_geometrics_process/cfexplainer/storage/processed/CVEfixes/None_processed/dgl_hetgraph_data_ncode.pt")
     parser.add_argument('--result_dir', type=str, default="/root/autodl-tmp/vul-detect/baseline/GTC/data/results")

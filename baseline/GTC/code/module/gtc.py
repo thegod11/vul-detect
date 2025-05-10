@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .contrast import Contrast, GraphLevelContrast
+from .contrast import Contrast, GraphLevelContrast, GraphLevelContrast_new, CVEContrastiveLoss
 from .transformer_model import TransformerModel
 from .gnn_encoder import GNN_encoder
 import dgl
@@ -113,7 +113,7 @@ class GTC(nn.Module):
         self.logreg_model = LogReg(self.hidden_dim*2 , 2)
         # contrast task
         self.contrast = Contrast(self.hidden_dim, tau, lam)
-        self.graph_contrast = GraphLevelContrast(hidden_dim=self.hidden_dim*2, tau=tau, alpha=0.7)
+        self.graph_contrast = CVEContrastiveLoss(hidden_dim=self.hidden_dim*2, tau=tau, alpha=0.7)
 
     def forward(self, g, feats, multi_hop_features, pos, cve_ids=None, languages=None, mini_batch_flag=False, mode="train"):
         h_all = {node_key: F.elu(self.feat_drop(self.fc_list[i](feats[node_key])))

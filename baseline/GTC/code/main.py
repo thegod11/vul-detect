@@ -16,6 +16,7 @@ curPath = os.path.abspath(os.path.dirname(__file__))
 rootPath = os.path.split(curPath)[0]
 sys.path.append(rootPath)
 sys.path.append("/root/autodl-tmp/vul-detect")
+from my_email import EmailSender
 import numpy
 import numpy as np
 import torch
@@ -132,9 +133,9 @@ def make4GraphClassification(config, dataset, mode="train"):
 
     if mode == "train":
         train_sampler = BalancedBatchSampler(dataset, batch_size=config.batch_size)
-        dataloader = GraphDataLoader(dataset, batch_sampler=train_sampler, drop_last=False, num_workers=12)
+        dataloader = GraphDataLoader(dataset, batch_sampler=train_sampler, drop_last=False, num_workers=4)
     elif mode == "test":
-        dataloader = GraphDataLoader(dataset, batch_size=1, shuffle=False, drop_last=False, num_workers=12)
+        dataloader = GraphDataLoader(dataset, batch_size=128, shuffle=False, drop_last=False, num_workers=4)
 
     return model, dataloader, optimizer
 
@@ -279,6 +280,129 @@ def test_flow_cvefixes(model, test_loader, config, category, exp=0):
     
     return metrics
 
+
+def train_flow_cvefixes(model, train_loader, optimizer, config, category, own_str, exp=0):
+    # 新增混合精度训练
+    scaler = torch.cuda.amp.GradScaler(enabled=config.use_amp)  # 在config中添加use_amp参数
+    
+    # 新增内存监控函数
+    def print_mem(msg):
+        if config.debug_mem:  # 调试时开启
+            print(f"[MEM]{msg}: alloc {torch.cuda.memory_allocated()/1e9:.2f}GB, "
+                  f"reserved {torch.cuda.memory_reserved()/1e9:.2f}GB")
+            
+    if os.path.exists('../data/checkpoint/GTC_' + own_str + '.pkl'):
+        model.load_state_dict(torch.load('../data/checkpoint/GTC_' + own_str + '.pkl'))
+        print("load pretrained model from ../data/checkpoint/GTC_" + own_str + '.pkl !!!')
+
+    cnt_wait = 0
+    best = 1e9
+    best_t = 0
+    print('-' * 60)
+    print('train_flow for exp-{}'.format(exp))
+    starttime = datetime.datetime.now()
+    for epoch in range(config.nb_epochs):
+        model.train()
+        loss_epoch = 0
+        for batch_id, items in enumerate(train_loader):
+            # 数据加载后立即释放CPU内存
+            with torch.no_grad():
+                idx = items['idx'].clone()
+                graphs = items['graph'].to(config.device)
+                labels = items['label'].to(config.device)
+                cve_ids = items['cve_id']
+                del items  # 主动释放原始数据
+                torch.cuda.empty_cache()
+            
+            print_mem("After data loading")
+            
+            # 使用上下文管理器管理计算图
+            with torch.cuda.amp.autocast(enabled=config.use_amp):
+
+                pdg = graphs.adj(etype="pdg").to_dense()
+                ast = graphs.adj(etype="ast").to_dense()
+                cfg = graphs.adj(etype="cfgcdg").to_dense()
+                pos_batch = ((pdg + ast + cfg) >= 3).float().fill_diagonal_(1).to_sparse().cuda()
+                
+                del pdg, cfg, ast
+                print_mem("After pos_batch")
+                
+                # 优化特征处理
+                if 'h' in graphs.ndata:
+                    input_fea4GNN = graphs.ndata['h']
+                elif 'feature' in graphs.ndata:
+                    input_fea4GNN = graphs.ndata['feature']
+                else:
+                    raise KeyError("Feature key not found in graph data")
+                if not isinstance(input_fea4GNN, dict):
+                    input_fea4GNN = {category: input_fea4GNN}
+                # 使用原地操作处理多跳特征
+                multi_hop_features = graphs.ndata['multi_hop_feature']
+                multi_hop_features = multi_hop_features.permute(1, 0, 2, 3).contiguous()
+                
+                print_mem("Before model forward")
+                
+                # 前向传播
+                loss = model(
+                    g=graphs,
+                    feats=input_fea4GNN,
+                    multi_hop_features=multi_hop_features,
+                    pos=pos_batch,
+                    languages=None,
+                    cve_ids=cve_ids,
+                    mini_batch_flag=False
+                )
+            
+            # 梯度累积（新增）
+            if config.grad_accum_steps > 1:
+                loss = loss / config.grad_accum_steps
+            
+            # 反向传播优化
+            scaler.scale(loss).backward()
+            
+            # 梯度累积策略
+            if (batch_id + 1) % config.grad_accum_steps == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+                print_mem("After backward")
+            
+            # 及时释放中间变量
+            del graphs, pos_batch, multi_hop_features
+            torch.cuda.empty_cache()
+            
+            loss_epoch += loss.detach()
+            
+            print("exp={}; epoch: {};batch-{}; loss {}; ".format(exp, epoch, batch_id, loss.data.cpu()))
+
+        print(" epoch: {}; epoch_loss {}".format(epoch, loss_epoch.data.cpu()))
+        if loss_epoch < best :
+            print('best loss: {}->{}'.format(best, loss_epoch))
+            best = loss_epoch
+            best_t = epoch
+            cnt_wait = 0
+            # save better checkpoint~
+            os.makedirs('../data/checkpoint', exist_ok=True)
+            torch.save(model.state_dict(), '../data/checkpoint/GTC_' + own_str + f'.pkl')
+            print("save model in ../data/checkpoint/GTC_" + own_str + f'.pkl !!!')
+        elif epoch % 100 == 0:
+            os.makedirs('../data/other-checkpoints', exist_ok=True)
+            torch.save(model.state_dict(), '../data/other-checkpoints/GTC_' + own_str + f'_epoch_{epoch}.pkl')
+            print("save model in ../data/other-checkpoints/GTC_" + own_str + f'_epoch_{epoch}.pkl !!!')
+        else:
+            cnt_wait += 1
+            print('lost not improved~ {}'.format(cnt_wait))
+        if cnt_wait >= config.patience:
+            print('Early stopping at {} epoch!'.format(epoch))
+            break
+    print('best epoch is {} !'.format(best_t))
+    endtime = datetime.datetime.now()
+    time = (endtime - starttime).seconds
+    print('Total train time {} s'.format(time))
+    print('-' * 40)
+    return best_t
+
+
 def train_flow_devign(model, train_loader, optimizer, config, category, own_str, exp=0):
     if os.path.exists('../data/checkpoint/GTC_' + own_str + '.pkl'):
         model.load_state_dict(torch.load('../data/checkpoint/GTC_' + own_str + '.pkl'))
@@ -313,11 +437,12 @@ def train_flow_devign(model, train_loader, optimizer, config, category, own_str,
             ast = graphs.adj(etype="ast").to_dense()
             cfg = graphs.adj(etype="cfgcdg").to_dense()
             pos_batch = ((pdg + ast + cfg) >= 3).float().fill_diagonal_(1).to_sparse().cuda()
+            del pdg, ast, cfg
             # pos_batch = get_batch_pos(pos=pos, batch_node_id_x=output_nodes[category].numpy()).to(config.device)
             # [num_meta-paths,num_nodes,num_hops,feature_dim}
             multi_hop_features = graphs.ndata['multi_hop_feature'].permute(1, 0, 2, 3)
 
-            loss = model(g=graphs, feats=input_fea4GNN, multi_hop_features=multi_hop_features, pos=pos_batch,languages=None, cve_ids=cve_ids, mini_batch_flag=False)
+            loss = model(g=graphs, feats=input_fea4GNN, multi_hop_features=multi_hop_features, pos=pos_batch,languages=languages, cve_ids=cve_ids, mini_batch_flag=False)
             loss_epoch = loss_epoch + loss
             optimizer.zero_grad()
             loss.backward()
@@ -459,6 +584,14 @@ def model_train(args):
         # print('{}:{}'.format(key, lst))
 
 def model_train_CVEfixes(args):
+    def watch_log():
+        file_path = '/root/autodl-tmp/output-gtc-train.log'
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        tail_lines = lines[-5:]
+        return '\n'.join(tail_lines)
+
+    emailsender = EmailSender(heartbeat_callback=watch_log, heartbeat_interval=1800)
     for exp in range(exp_num):  # every exp
         print('-' * 60)
         print('exp:{}'.format(exp))
@@ -582,7 +715,7 @@ def main_train_classifier(args):
                           save_dir=args.test_data_save_dir)
     
     # 构建模型结构（需与预训练模型完全一致）
-    model, train_loader, _ = make4GraphClassification(args, dataset)
+    model, train_loader, _ = make4GraphClassification(args, dataset, mode="test")
     _, test_loader, _ = make4GraphClassification(args, test_dataset, mode="test")
     model = model.to(device)
 
@@ -599,6 +732,7 @@ def main_train_classifier(args):
     # 提取图嵌入特征
     print("Extracting graph embeddings...")
     train_data = extract_embeddings(model, train_loader, args, dataset.category)
+    print("train_data shape: ", train_data["embeddings"].shape)
     print("Extracting test dataset 's graph embeddings...")
     test_data = extract_embeddings(model, test_loader, args, dataset.category)
 
@@ -610,6 +744,7 @@ def main_train_classifier(args):
     print(f"Training classifier on {X_train.shape[0]} samples...")
     trainer = ClassifierTrainer(device=device)
     trainer._plot_distribution(args, train_data, test_data)
+    print("！！！！！！！！！！！！所有图像绘制完毕 ！！！！！！！！！！！")
     
     # 训练所有分类器
     print("\nTraining MLP:")

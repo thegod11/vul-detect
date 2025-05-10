@@ -53,8 +53,8 @@ tail -f /root/autodl-tmp/output-dataprocess.log
 ps -ef | grep run.py
 kill 进程号
 
-nohup python vulDGLDataset.py > /root/autodl-tmp/output-dataprocess.log 2>&1 &
-tail -f /root/autodl-tmp/output-dataprocess.log
+nohup python vulDGLDataset.py > /root/autodl-tmp/output-dataprocess-2.log 2>&1 &
+tail -f /root/autodl-tmp/output-dataprocess-2.log
 ps -ef | grep vulDGLDataset.py
 kill 进程号
 ```

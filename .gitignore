@@ -36,3 +36,5 @@ baseline/GTC/data/*
 *.bin*
 joern/workspace/*
 data/.DS_Store
+baseline/UAST/Dataset
+baseline/UAST/vocabulary

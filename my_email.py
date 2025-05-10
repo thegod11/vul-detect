@@ -1,22 +1,54 @@
 import smtplib
+import threading
 from email.mime.text import MIMEText
 from email.utils import formataddr
+from datetime import datetime
 
 class EmailSender:
-    def __init__(self, sender_email="1910738214@qq.com" , sender_auth_code="hvlhjtcrtslvejej", recipient_email="1910738214@qq.com", subject="vul-detect 运行结果通知"):
+    def __init__(self, 
+                 sender_email="1910738214@qq.com",
+                 sender_auth_code="hvlhjtcrtslvejej",
+                 recipient_email="1910738214@qq.com",
+                 subject="vul-detect 运行结果通知",
+                 heartbeat_callback=None,
+                 heartbeat_interval=10):
         """
         初始化邮件发送器
-        :param sender_email: 发件人邮箱（QQ邮箱）
-        :param sender_auth_code: 发件人授权码（QQ邮箱的SMTP授权码）
-        :param recipient_email: 收件人邮箱（可以是字符串或列表）
-        :param subject: 邮件主题（默认：无主题）
+        :param heartbeat_callback: 心跳信息生成函数（返回字符串）
+        :param heartbeat_interval: 心跳间隔秒数（默认半小时）
         """
+        # 邮件配置
         self.sender_email = sender_email
         self.sender_auth_code = sender_auth_code
         self.recipient_email = recipient_email
         self.subject = subject
         self.smtp_server = "smtp.qq.com"
         self.smtp_port = 465
+        
+        # 心跳模块
+        self.heartbeat_callback = heartbeat_callback
+        self.heartbeat_interval = heartbeat_interval
+        self._timer = None
+        
+        # 自动启动心跳监测
+        if self.heartbeat_callback:
+            self._schedule_heartbeat()
+
+    def _schedule_heartbeat(self):
+        """调度下一次心跳发送"""
+        self._timer = threading.Timer(self.heartbeat_interval, self._send_heartbeat)
+        self._timer.daemon = True  # 设置为守护线程
+        self._timer.start()
+
+    def _send_heartbeat(self):
+        """执行心跳发送"""
+        try:
+            content = self.heartbeat_callback()
+            self.send(f"[心跳监测] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{content}")
+        except Exception as e:
+            print(f"心跳发送失败: {str(e)}")
+        finally:
+            self._schedule_heartbeat()  # 重新调度
 
     def send(self, content, content_type="plain"):
         """
@@ -50,20 +82,30 @@ class EmailSender:
             print(f"邮件发送失败: {str(e)}")
             return False
 
+    def stop_heartbeat(self):
+        """停止心跳监测"""
+        if self._timer:
+            self._timer.cancel()
+
 if __name__ == "__main__":
-    # 使用示例
-    sender = "1910738214@qq.com"        # 替换为你的QQ邮箱
-    auth_code = "hvlhjtcrtslvejej"         # 替换为你的SMTP授权码
-    recipient = "1910738214@qq.com"  # 替换为收件人邮箱
-    
+    # 示例心跳回调函数
+    def custom_heartbeat():
+        return "系统运行状态：正常\n检测服务存活：是\n待处理任务：0"
+
+    # 初始化邮件发送器（带心跳）
     mailer = EmailSender(
-        sender_email=sender,
-        sender_auth_code=auth_code,
-        recipient_email=recipient,
-        subject="测试邮件"
+        sender_email="1910738214@qq.com",
+        sender_auth_code="hvlhjtcrtslvejej",
+        recipient_email="1910738214@qq.com",
+        subject="服务状态监测",
+        heartbeat_callback=custom_heartbeat,
+        heartbeat_interval=10  # 测试用60秒间隔
     )
-    
-    if mailer.send("这是一封来自Python的测试邮件"):
-        print("邮件发送成功！")
-    else:
-        print("邮件发送失败！")
+
+    try:
+        # 保持主线程运行
+        while True:
+            pass
+    except KeyboardInterrupt:
+        mailer.stop_heartbeat()
+        print("已停止心跳监测")

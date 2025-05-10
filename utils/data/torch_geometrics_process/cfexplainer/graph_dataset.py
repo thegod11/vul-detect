@@ -20,8 +20,12 @@ from transformers import (BertConfig, BertForMaskedLM, BertTokenizer,
 from .helpers import utils
 from .helpers import joern
 from tqdm import tqdm
+sys.path.append('/root/autodl-tmp/vul-detect')
+from my_email import EmailSender
+
 # from data_pre import bigvul
 dataset_name = "CVEfixes"
+save_name_str = ""
 
 class VulGraphDataset(Dataset):
     def __init__(self, root: Optional[str] = f"storage/processed/{dataset_name}", 
@@ -113,10 +117,10 @@ class VulGraphDataset(Dataset):
         tqdm.pandas()
         self.df["torch_geometrics_data"] = self.df.progress_apply(lambda row: [self.data_build(row, data_list, e) for e in ["ast", "cfgcdg", "pdg"]], axis=1)
 
-        print(f'Saving in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe_C#_ncode.pkl")} .....')
-        self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset_name}_dataframe_C#_ncode.pkl"))
+        print(f'Saving in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe{save_name_str}_ncode.pkl")} .....')
+        self.df.to_pickle(os.path.join(self.processed_dir, f"{dataset_name}_dataframe{save_name_str}_ncode.pkl"))
         torch.save(data_list, self.processed_paths[0])
-        print(f'Saved in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe_C#_ncode.pkl")} !!!')
+        print(f'Saved in {os.path.join(self.processed_dir, f"{dataset_name}_dataframe{save_name_str}_ncode.pkl")} !!!')
         
     def len(self) -> int:
         return len(self.data_list)
